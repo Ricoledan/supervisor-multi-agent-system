@@ -1,4 +1,4 @@
-# supervisor-ai-agent
+# supervisor-multi-agent-system
 
 ## Overview
 
@@ -21,5 +21,9 @@ specialized subordinate agents, served through a FastAPI interface.
 ## Pre-requisites
 
 ## Setup
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
