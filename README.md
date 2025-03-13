@@ -72,8 +72,7 @@ supervisor-multi-agent-system/
   and offers features like transactions, foreign keys, views, triggers, and stored procedures.
 
 - **Docker**: an open-source platform that automates the deployment, scaling, and management of applications using
-  containerization. Containers are lightweight, portable units that package an application and its dependencies,
-  ensuring consistent behavior across different environments.
+  containerization.
 
 ## Pre-requisites
 
