@@ -104,3 +104,7 @@ docker compose up --build
 ```
 
 The FastAPI server will be accessible at `http://localhost:8000`
+
+## References
+
+- [Multi-agent Systems](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
