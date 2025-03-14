@@ -2,27 +2,38 @@
 
 ## Overview
 
-This project implements a Hierarchical Multi-Agent System (MAS) architecture featuring a central supervisor agent that
-orchestrates specialized subordinate agents, served through a FastAPI interface.
+This project implements a Multi-Agent System (MAS) architecture featuring a single supervisor agent that orchestrates
+which agent should be called, served through a FastAPI interface.
 
 ## Key Features
 
-- **Task Delegation and Coordination**: Supports architectures where a central supervisor agent assigns tasks to
-  specialized subordinate agents, monitors their progress, and ensures alignment with overarching objectives.
+- **Task Delegation & Coordination**: Assigns tasks to subordinate AI agents, manages inter-agent communication, and
+  ensures efficient task execution.
 
-- **Performance Monitoring**: By evaluating the outputs and behaviors of subordinate agents, a supervisor agent can
-  maintain quality and efficiency, intervening when necessary to correct deviations.
+- **Tool-Calling & API Integration**: Directly interacts with external APIs, databases, and computational tools, serving
+  as an interface between agents and external services.
 
-- **Decision Support**: Integrating insights from multiple agents, the supervisor provides high-level decision-making
-  assistance, optimizing workflow execution and improving overall system intelligence.
+- **Monitoring & Control**: Evaluates agent outputs, detects errors, and can override or redirect actions to ensure
+  accurate and efficient operations.
 
-- **Communication Management**: Facilitates structured communication flows between agents, enabling smooth
-  inter-agent collaboration.
+- **Decision-Making & Adaptive Workflow**: Adjusts workflows dynamically based on agent responses, reassigning tasks or
+  retrying operations when necessary.
 
-- **Hierarchical Structuring**: Supports multi-level hierarchies, allowing a supervisor to manage other
-  supervisors, facilitating scalable, distributed, and complex AI-driven workflows.
+- **Multi-Step Planning & Execution**: Structures complex workflows into sequential steps, ensuring dependencies between
+  tasks are handled correctly.
+
+- **Error Handling & Recovery**: Detects failures or inconsistencies in agent outputs, implementing retry mechanisms or
+  alternative strategies when needed.
+
+- **Hierarchical Control**: Manages multiple layers of agents, including other supervisors, to scale AI-driven workflows
+  effectively.
+
+- **Policy & Rule Enforcement**: Enforces compliance with business logic, security constraints, and ethical guidelines,
+  filtering or modifying responses accordingly.
 
 ## Architecture
+
+
 
 ### Directory Structure
 
@@ -47,7 +58,7 @@ supervisor-multi-agent-system/
 
 - **FastAPI**: a modern, high-performance web framework for building APIs with Python.
 
-- **Langchain**: a framework for developing applications powered by large language models. 
+- **Langchain**: a framework for developing applications powered by large language models.
 
 - **LangGraph**: a library designed for building stateful, multi-actor applications with LLMs, facilitating the creation
   of agent and multi-agent workflows.

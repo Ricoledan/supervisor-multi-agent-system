@@ -12,7 +12,7 @@ services:
     depends_on:
       - neo4j
       - chromadb
-    command: [ "python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000" ]
+    command: [ "python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug" ]
   neo4j:
     image: neo4j:latest
     restart: unless-stopped

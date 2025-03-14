@@ -1,6 +1,7 @@
 # =======================
 # Base Image
 # =======================
+
 FROM python:3.11-slim AS base
 
 WORKDIR /app
@@ -20,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # =======================
 # Development
 # =======================
+
 FROM base AS dev
 USER appuser
 RUN pip install --no-cache-dir -r requirements.txt
