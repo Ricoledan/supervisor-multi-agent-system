@@ -12,7 +12,7 @@ api_key_str = os.getenv("OPENAI_API_KEY")
 if not api_key_str:
     raise ValueError("Missing OpenAI API Key. Set OPENAI_API_KEY in your environment.")
 
-openai_api_key = SecretStr(api_key_str)  # Convert to SecretStr
+openai_api_key = SecretStr(api_key_str)
 
 model = ChatOpenAI(api_key=openai_api_key)
 
