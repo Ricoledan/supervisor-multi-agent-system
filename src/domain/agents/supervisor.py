@@ -1,26 +1,33 @@
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from src.domain.agents.graph import graph_agent
-from src.domain.agents.topic_model import tm_agent
+from src.domain.agents.topic_modeler import tm_agent
+from src.domain.agents.coder import coder_agent
 from dotenv import load_dotenv
 from pydantic import SecretStr
 import os
 
+# Load environment variables from a .env file
 load_dotenv()
 
+# Retrieve the OpenAI API key from the environment variables
 api_key_str = os.getenv("OPENAI_API_KEY")
 if not api_key_str:
     raise ValueError("Missing OpenAI API Key. Set OPENAI_API_KEY in your environment.")
 
+# Wrap the API key using SecretStr for secure handling
 openai_api_key = SecretStr(api_key_str)
 
+# Initialize the ChatOpenAI model with the provided API key
 model = ChatOpenAI(api_key=openai_api_key)
 
-tools = [graph_agent, tm_agent]
+# Define the tools/agents to be used by the supervisor agent
+tools = [graph_agent, tm_agent, coder_agent]
 
+# Create the supervisor agent using a React-based approach
 supervisor = create_react_agent(model, tools)
 
-def run_supervisor(query: str):
+def run_supervisor(query: str) -> dict:
     """
     Executes the supervisor agent with the given user query.
 
@@ -32,8 +39,11 @@ def run_supervisor(query: str):
     """
     try:
         print("Running supervisor agent...", flush=True)
-        response = supervisor.invoke({"input": query})
+        config = {"recursion_limit": 50}
+        response = supervisor.invoke({"input": query}, config)
         print("Supervisor response:", response, flush=True)
         return response
     except Exception as e:
-        return {"error": str(e)}
+        error_message = f"Error during supervisor execution: {e}"
+        print(error_message, flush=True)
+        return {"error": error_message}
