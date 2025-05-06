@@ -81,19 +81,21 @@ A multi-agent system that transforms academic papers into a searchable, structur
 graph
 through these high-level stages:
 
-**PDFs/Docs ➜ Extraction ➜ Topic Modeling ➜ Summarization ➜ Graph Construction ➜ Semantic Retrieval ➜ User Interaction**
+**Extraction ➜ Topic Modeling ➜ Summarization ➜ Graph Construction ➜ Semantic Retrieval ➜ User
+Interaction**
 
 ### Step-by-Step Agent-Orchestrated Flow
 
-| **Step**                          | **Agent**                  | **Function**                                                                                 |
-|-----------------------------------|----------------------------|----------------------------------------------------------------------------------------------|
-| 1. Ingest and parse PDFs          | **Supervisor**             | Coordinates all downstream tasks and delegates actions to appropriate agents                 |
-| 2. Extract entities and events    | **EntityExtractor**        | Identifies key concepts, people, organizations, and temporal events from documents           |
-| 3. Generate paper/topic summaries | **Summarizer**             | Produces concise summaries highlighting methods, arguments, and findings                     |
-| 4. Perform topic modeling         | **TopicModel**             | Analyzes document content to detect latent themes and assigns topic labels                   |
-| 5. Store in vector database       | **Retriever**              | Saves documents and associated metadata as embeddings into ChromaDB                          |
-| 6. Build knowledge graph          | **Neo4jWriter**            | Constructs and maintains a graph linking documents, entities, and topics                     |
-| 7. Serve user queries             | **Retriever + Supervisor** | Combines semantic search with graph traversal to answer user prompts and support exploration |
+| **Step**                            | **Agent**                  | **Function**                                                                                                   |
+|-------------------------------------|----------------------------|----------------------------------------------------------------------------------------------------------------|
+| 1. Ingest and parse source material | **Ingestion Parser**       | Handles file reading, PDF/text parsing, and initial structuring of raw academic data                           |
+| 2. Plan and delegate tasks          | **Supervisor**             | Interprets the user query, creates the task plan, delegates tasks, and manages agent coordination and fallback |
+| 3. Extract entities and events      | **EntityExtractor**        | Identifies key concepts, people, organizations, and temporal events from documents                             |
+| 4. Generate paper/topic summaries   | **Summarizer**             | Produces concise summaries highlighting methods, arguments, and findings                                       |
+| 5. Perform topic modeling           | **TopicModel**             | Analyzes document content to detect latent themes and assigns topic labels                                     |
+| 6. Store in vector database         | **Retriever**              | Saves documents and associated metadata as embeddings into ChromaDB                                            |
+| 7. Build knowledge graph            | **Neo4jWriter**            | Constructs and maintains a graph linking documents, entities, and topics                                       |
+| 8. Serve user queries               | **Retriever + Supervisor** | Combines semantic search with graph traversal to answer user prompts and support exploration                   |
 
 ### Workflow Goals
 
@@ -119,8 +121,19 @@ through these high-level stages:
 
 #### Agent Responsibilities
 
-- **Supervisor**: The main agent that orchestrates the workflow, managing the interaction between subordinate
-  agents and external systems.
+- **Supervisor Agent – Core Responsibilities**  
+  • **Workflow Orchestration**: Breaks down complex tasks into subtasks and routes each to the correct agent.  
+  • **State Management**: Maintains the current state of a task or session across agents, using LangGraph for flow
+  control.  
+  • **Dynamic Routing**: Based on outputs or detected failures, it redirects tasks to alternative agents (e.g., retry
+  summarization if empty output).  
+  • **Fallback & Error Recovery**: Detects failed agent responses and either reattempts the task, tries a different
+  method, or informs the user.  
+  • **Policy Enforcement**: Ensures that the agents follow task rules, user permissions, and predefined logic
+  constraints.  
+  • **Multi-Hop Reasoning**: Delegates multiple reasoning steps across agents and tracks intermediate results.  
+  • **User Interaction Layer**: Interfaces with the user (via FastAPI) to interpret queries and translate them into a
+  plan of action using the agent stack.
 
 - **Entity Extractor**  
   Identifies and extracts named entities, key phrases, authors, institutions, methods, datasets, and concepts from raw
