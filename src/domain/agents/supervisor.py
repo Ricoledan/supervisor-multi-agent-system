@@ -1,24 +1,12 @@
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from src.domain.agents.graph_writer import graph_agent
 from src.domain.agents.topic_model import tm_agent
-from src.domain.agents.coder import coder_agent
-from dotenv import load_dotenv
-from pydantic import SecretStr
-import os
+from src.domain.prompts.agent_prompts import SUPERVISOR_PROMPT
+from src.utils.model_init import get_openai_model
 from langchain.tools import Tool
 
-load_dotenv()
+model = get_openai_model()
 
-api_key_str = os.getenv("OPENAI_API_KEY")
-if not api_key_str:
-    raise ValueError("Missing OpenAI API Key. Set OPENAI_API_KEY in your environment.")
-
-openai_api_key = SecretStr(api_key_str)
-
-model = ChatOpenAI(api_key=openai_api_key)
-
-# Logging agent use and results
 def wrap_agent(agent, name):
     def _run(*args, **kwargs):
         print(f"[Supervisor] Invoking agent: {name}", flush=True)
@@ -29,13 +17,10 @@ def wrap_agent(agent, name):
 
 graph_tool = wrap_agent(graph_agent, "graph_agent")
 tm_tool = wrap_agent(tm_agent, "tm_agent")
-coder_tool = wrap_agent(coder_agent, "coder_agent")
 
-# Defines the tools/agents to be used by the supervisor agent
-tools = [graph_tool, tm_tool, coder_tool]
+tools = [graph_tool, tm_tool]  # ✅ Include tools here
 
-# Create the supervisor agent using a React-based approach
-supervisor = create_react_agent(model, tools)
+supervisor = create_react_agent(model, tools, prompt=SUPERVISOR_PROMPT)
 
 def run_supervisor(query: str) -> dict:
     """
@@ -49,8 +34,14 @@ def run_supervisor(query: str) -> dict:
     """
     try:
         print("Running supervisor agent...", flush=True)
-        config = {"recursion_limit": 10} # Example configuration and testing
-        response = supervisor.invoke({"input": query}, config)
+        response = supervisor.invoke({
+            "input": query,
+            "agent_scratchpad": [],
+            "is_last_step": False,
+            "messages": [],
+            "remaining_steps": 10,
+            "recursion_limit": 10
+        })
         print("Supervisor response:", response, flush=True)
         return response
     except Exception as e:
