@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from src.domain.agents.supervisor import supervisor
+from src.domain.agents.supervisor import run_supervisor
 
 router = APIRouter()
 
+
 class QueryRequest(BaseModel):
     query: str
+
 
 @router.post("/agent")
 def process_query(request: QueryRequest):
@@ -16,17 +18,24 @@ def process_query(request: QueryRequest):
         request (QueryRequest): JSON payload containing the user query.
 
     Returns:
-        dict: The AI-generated response content.
+        dict: The AI-generated response formatted for a chat interface.
     """
     try:
-        response = supervisor.invoke({"messages": [{"role": "user", "content": request.query}]})
+        # Run the supervisor workflow
+        response = run_supervisor(request.query)
 
-        ai_response = next(
-            (msg.content for msg in response["messages"] if getattr(msg, "type", None) == "ai"),
-            "No valid response"
-        )
+        # Extract the final output for the primary response
+        final_output = response.get("final_output", "No response generated.")
 
-        return {"response": ai_response}
+        # Return a chat-friendly response structure
+        return {
+            "status": "success",
+            "message": final_output,
+            "debug": {
+                "graph_output": response.get("graph_output", "No graph output"),
+                "tm_output": response.get("tm_output", "No topic modeling output")
+            }
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

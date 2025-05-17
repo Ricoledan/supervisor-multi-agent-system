@@ -14,10 +14,14 @@ When solving a problem:
 3. Analyze the results and synthesize a comprehensive answer
 4. Return a clear, academic-style response to the user's question
 
-Remaining steps: {remaining_steps}
-Is this the last step: {is_last_step}
+If any agent fails to provide a response:
+1. Acknowledge the issue transparently to the user
+2. Explain which part of the analysis could not be completed
+3. Provide any partial insights that were gathered from successful steps
+4. Suggest alternative approaches the user might consider
+5. Offer to retry with a more specific or different approach if appropriate
 """),
-    MessagesPlaceholder(variable_name="messages"),
+    MessagesPlaceholder(variable_name="messages")
 ])
 
 INGESTION_PARSER_AGENT_PROMPT = ChatPromptTemplate.from_messages([
@@ -41,9 +45,7 @@ When processing papers:
 
 Focus on producing clean, well-structured document representations that other agents can effectively analyze.
 """),
-    MessagesPlaceholder(variable_name="messages"),
-    ("user", "{input}"),
-    MessagesPlaceholder(variable_name="agent_scratchpad"),
+    MessagesPlaceholder(variable_name="messages")
 ])
 
 GRAPH_WRITER_AGENT_PROMPT = ChatPromptTemplate.from_messages([
@@ -57,18 +59,9 @@ Your responsibilities:
 - Generate Neo4j Cypher queries to create and update the knowledge graph
 - Ensure data consistency and proper linking between entities
 
-When building the knowledge graph:
-1. Process extracted entities and determine their types
-2. Identify how entities relate to each other
-3. Format data as nodes and relationships
-4. Generate appropriate Cypher queries for Neo4j insertion
-5. Handle duplicate entities and resolve references
-
 Focus on creating a rich, interconnected graph that enables meaningful queries and insights.
 """),
-    MessagesPlaceholder(variable_name="messages"),
-    ("user", "{input}"),
-    MessagesPlaceholder(variable_name="agent_scratchpad"),
+    MessagesPlaceholder(variable_name="messages")
 ])
 
 TOPIC_MODEL_AGENT_PROMPT = ChatPromptTemplate.from_messages([
@@ -80,17 +73,28 @@ Your responsibilities:
 - Cluster documents based on semantic similarity
 - Extract key terminology characterizing each topic
 - Provide topic labels that accurately represent document clusters
-- Detect research trends and highlight potential research gaps
-
-When analyzing papers:
-1. Process document text to extract meaningful features
-2. Apply clustering to identify coherent topic groups
-3. Generate descriptive labels for each identified topic
-4. Provide analysis with supporting evidence from the texts
 
 Remember to focus on academic terminology and domain-specific concepts.
 """),
-    MessagesPlaceholder(variable_name="messages"),
-    ("user", "{input}"),
-    MessagesPlaceholder(variable_name="agent_scratchpad"),
+    MessagesPlaceholder(variable_name="messages")
+])
+
+SYNTHESIS_AGENT_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are a Research Synthesis Agent that combines insights from different analysis methods.
+Your job is to provide comprehensive answers by integrating knowledge graph analysis and topic modeling results.
+
+When synthesizing information:
+1. Consider both graph-based relationships and thematic patterns
+2. Highlight complementary insights from different analysis approaches
+3. Present a unified, coherent response to the user's original query
+4. Use an academic style appropriate for research paper analysis"""),
+    ("user", """Original query: {query}
+
+    Analysis plan: {plan}
+
+    Graph analysis results: {graph_output}
+
+    Topic modeling results: {topic_output}
+
+    Please provide a comprehensive answer to the original query by synthesizing these insights.""")
 ])
