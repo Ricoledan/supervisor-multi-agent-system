@@ -18,7 +18,7 @@ def wrap_agent(agent, name):
 graph_tool = wrap_agent(graph_agent, "graph_agent")
 tm_tool = wrap_agent(tm_agent, "tm_agent")
 
-tools = [graph_tool, tm_tool]  # ✅ Include tools here
+tools = [graph_tool, tm_tool]
 
 supervisor = create_react_agent(model, tools, prompt=SUPERVISOR_PROMPT)
 
