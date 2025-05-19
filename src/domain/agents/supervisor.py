@@ -22,6 +22,26 @@ class AgentState(TypedDict, total=False):
     final_output: Optional[str]
 
 
+def retrieval_node(state: AgentState) -> AgentState:
+    """Retrieves relevant content from databases"""
+    query = state["input"]
+
+    # Get semantically similar papers from chromaDB
+    relevant_papers = query_vectordb(query)
+
+    # Get related graph relationships from Neo4j
+    relationships = query_graphdb(query)
+
+    # Get topic information from MongoDB
+    topics = query_mongodb(query)
+
+    state["context"] = {
+        "relevant_papers": relevant_papers,
+        "relationships": relationships,
+        "topics": topics
+    }
+    return state
+
 def planning_node(state: AgentState) -> AgentState:
     """Plans the approach based on the query."""
     query = state["input"]
@@ -191,12 +211,14 @@ def synthesize_node(state: AgentState) -> AgentState:
 
 logger.info("Initializing supervisor workflow")
 workflow = StateGraph(AgentState)
+workflow.add_node("retrieval", retrieval_node)
 workflow.add_node("planning", planning_node)
 workflow.add_node("graph_node", graph_node)
 workflow.add_node("topic_model_node", topic_model_node)
 workflow.add_node("synthesize_node", synthesize_node)
 
-workflow.set_entry_point("planning")
+workflow.set_entry_point("retrieval")
+workflow.add_edge("retrieval", "planning")
 
 logger.info("Setting up conditional workflow edges")
 workflow.add_conditional_edges(

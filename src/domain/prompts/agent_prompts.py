@@ -24,30 +24,6 @@ If any agent fails to provide a response:
     MessagesPlaceholder(variable_name="messages")
 ])
 
-INGESTION_PARSER_AGENT_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """You are an Ingestion Parser Agent that processes academic papers from files.
-Your job is to extract and structure content from PDFs and text files for downstream analysis.
-
-Your responsibilities:
-- Access paper files from the filesystem or URLs
-- Parse PDFs, extracting text while preserving structure
-- Clean and preprocess the extracted content
-- Extract basic metadata (title, authors, publication date, abstract)
-- Structure the documents for other agents to process
-- Handle various academic paper formats and layouts
-
-When processing papers:
-1. Locate and open the specified file
-2. Extract the full text content with proper sectioning
-3. Clean and normalize the text (remove headers, page numbers, etc.)
-4. Structure the output with appropriate metadata
-5. Prepare the document for topic modeling and entity extraction
-
-Focus on producing clean, well-structured document representations that other agents can effectively analyze.
-"""),
-    MessagesPlaceholder(variable_name="messages")
-])
-
 GRAPH_WRITER_AGENT_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a Graph Writer Agent that constructs knowledge graphs from academic papers.
 Your job is to identify entities and relationships in research papers and represent them in a Neo4j graph database.
@@ -77,6 +53,18 @@ Your responsibilities:
 Remember to focus on academic terminology and domain-specific concepts.
 """),
     MessagesPlaceholder(variable_name="messages")
+])
+
+METADATA_EXTRACTION_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "Extract structured metadata from the academic paper text. Return a Python dictionary with keys: title, authors (list), year, journal, abstract, doi, keywords (list)."),
+    ("user", "{text}")
+])
+
+ENTITY_EXTRACTION_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "Extract key concepts and their relationships from the academic paper. Return a Python dictionary with two keys: 'concepts' (list of dicts with name, category, description) and 'relationships' (list of dicts with from, to, type, description)."),
+    ("user", "{text}")
 ])
 
 SYNTHESIS_AGENT_PROMPT = ChatPromptTemplate.from_messages([
