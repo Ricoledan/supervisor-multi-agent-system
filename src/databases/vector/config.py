@@ -11,15 +11,18 @@ logging.basicConfig(level=logging.INFO)
 
 class ChromaDBConfig:
     def __init__(self):
-        self.host = os.environ.get('CHROMA_SERVER_HOST')
-        self.port = os.environ.get('CHROMA_SERVER_PORT')
+        self.host = os.environ.get('CHROMA_HOST')
+        self.port = os.environ.get('CHROMA_PORT')
         logger.info(f"ChromaDBConfig initialized with host={self.host}, port={self.port}")
 
     def get_client(self):
         try:
+            # Explicitly convert port to integer
+            port_int = int(self.port)
+
             client = chromadb.HttpClient(
                 host=self.host,
-                port=self.port,
+                port=port_int,
                 settings=chromadb.Settings(
                     anonymized_telemetry=True
                 )
