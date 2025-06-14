@@ -1,3 +1,5 @@
+# src/domain/agents/graph_writer.py
+
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain.tools import Tool
@@ -11,80 +13,90 @@ model = ChatOpenAI(model="gpt-4")
 
 
 def enhanced_graph_tool(input: str) -> str:
-    """Enhanced graph analysis with better insights"""
+    """Enhanced graph analysis with ACTUAL database queries"""
     try:
+        logger.info(f"Graph tool called with input: {input[:50]}...")
+
+        # ACTUALLY CALL THE DATABASE
         graph_data = query_graphdb(input)
 
         concepts = graph_data.get("concepts", [])
         relationships = graph_data.get("relationships", [])
         papers = graph_data.get("papers", [])
 
-        if not concepts:
-            return "No relevant concepts found in the knowledge graph for this query."
+        logger.info(
+            f"Database returned: {len(concepts)} concepts, {len(relationships)} relationships, {len(papers)} papers")
 
-        # Enhanced analysis
-        analysis = "## 🔗 Knowledge Graph Analysis\n\n"
+        # If no data found, be explicit about it
+        if not concepts and not relationships and not papers:
+            return f"""## 🔗 Knowledge Graph Analysis
 
-        # Concept analysis with categories
-        analysis += f"### 📋 Key Concepts ({len(concepts)})\n"
+**Database Query Results:** No data found in Neo4j database for query: "{input}"
 
-        # Group concepts by category
-        concept_groups = {}
-        for concept in concepts:
-            category = concept.get('category', 'General')
-            if category not in concept_groups:
-                concept_groups[category] = []
-            concept_groups[category].append(concept)
+**Possible Issues:**
+- Database may be empty (run: python check_db.py)
+- Query terms don't match existing data
+- Database connection issues
 
-        for category, group_concepts in concept_groups.items():
-            analysis += f"\n**{category}:**\n"
-            for concept in group_concepts[:3]:  # Top 3 per category
-                desc = concept.get('description', '')[:100]
-                analysis += f"- **{concept['name']}**: {desc}...\n"
+**Recommendation:** Populate database with academic papers first using the ingestion pipeline."""
 
-        # Relationship analysis
+        # Build analysis from ACTUAL data
+        analysis = "## 🔗 Knowledge Graph Analysis (from Neo4j Database)\n\n"
+
+        # Real concepts from database
+        if concepts:
+            analysis += f"### 📋 Key Concepts Found ({len(concepts)})\n"
+            concept_groups = {}
+            for concept in concepts:
+                category = concept.get('category', 'General')
+                if category not in concept_groups:
+                    concept_groups[category] = []
+                concept_groups[category].append(concept)
+
+            for category, group_concepts in concept_groups.items():
+                analysis += f"\n**{category}:**\n"
+                for concept in group_concepts[:3]:
+                    name = concept.get('name', 'Unknown')
+                    desc = concept.get('description', 'No description')[:100]
+                    analysis += f"- **{name}**: {desc}...\n"
+
+        # Real relationships from database
         if relationships:
-            analysis += f"\n### 🔗 Key Relationships ({len(relationships)})\n"
-
-            # Sort by relationship type
-            rel_types = {}
-            for rel in relationships:
+            analysis += f"\n### 🔗 Relationships Found ({len(relationships)})\n"
+            for rel in relationships[:5]:
+                from_node = rel.get('from', 'Unknown')
+                to_node = rel.get('to', 'Unknown')
                 rel_type = rel.get('type', 'related_to')
-                if rel_type not in rel_types:
-                    rel_types[rel_type] = []
-                rel_types[rel_type].append(rel)
+                analysis += f"- {from_node} → [{rel_type}] → {to_node}\n"
 
-            for rel_type, type_rels in rel_types.items():
-                analysis += f"\n**{rel_type.replace('_', ' ').title()}:**\n"
-                for rel in type_rels[:3]:  # Top 3 per type
-                    analysis += f"- {rel['from']} → {rel['to']}\n"
-
-        # Paper connections
+        # Real papers from database
         if papers:
             analysis += f"\n### 📄 Connected Papers ({len(papers)})\n"
             for paper in papers[:3]:
+                title = paper.get('title', 'Unknown Title')
+                year = paper.get('year', 'Unknown Year')
                 concepts_list = ", ".join(paper.get('related_concepts', [])[:3])
-                analysis += f"- **{paper.get('title', 'Unknown')}**\n"
-                analysis += f"  *Key concepts: {concepts_list}*\n"
+                analysis += f"- **{title}** ({year})\n"
+                if concepts_list:
+                    analysis += f"  *Related concepts: {concepts_list}*\n"
 
-        # Add insights summary
-        analysis += f"\n### 💡 Key Insights\n"
-        analysis += f"- Found {len(concepts)} interconnected concepts\n"
-        analysis += f"- Identified {len(relationships)} meaningful relationships\n"
+        analysis += f"\n### 💡 Database Insights\n"
+        analysis += f"- Retrieved {len(concepts)} concepts from Neo4j\n"
+        analysis += f"- Found {len(relationships)} relationships\n"
         analysis += f"- Connected to {len(papers)} research papers\n"
 
         return analysis
 
     except Exception as e:
-        logger.error(f"Enhanced graph analysis error: {e}")
-        return f"Error performing graph analysis: {str(e)}"
+        logger.error(f"Graph tool error: {e}", exc_info=True)
+        return f"Error querying Neo4j database: {str(e)}\nCheck database connection and data availability."
 
 
 # Create the enhanced tool
 tools = [Tool.from_function(
     enhanced_graph_tool,
     name="enhanced_graph_tool",
-    description="Analyzes concept relationships in the knowledge graph with detailed insights"
+    description="Analyzes concept relationships in the knowledge graph with detailed insights from actual database"
 )]
 
 # Create the agent with enhanced tool
@@ -112,5 +124,5 @@ class WrappedAgent:
         return {"output": content}
 
 
-# Export the enhanced agent
+# Export the enhanced agent - THIS WAS MISSING!
 graph_writer_agent = WrappedAgent()

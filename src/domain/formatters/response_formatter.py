@@ -1,89 +1,85 @@
-# Update your existing src/domain/formatters/response_formatter.py
-
-import json
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 
 class EnhancedResponseFormatter:
-    """Formats agent responses with improved structure and readability."""
+    """Fixed response formatter for LangGraph outputs"""
 
     @staticmethod
     def _extract_clean_content(agent_output: Any) -> str:
-        """Extract clean content from agent output"""
-        if isinstance(agent_output, str):
-            # If it contains LangGraph message objects, extract the actual content
-            if "messages" in agent_output and "AIMessage" in agent_output:
-                # Find the last AIMessage content
-                pattern = r"AIMessage\(content='([^']*(?:##[^']*)*)', additional_kwargs"
-                matches = re.findall(pattern, agent_output, re.DOTALL)
-                if matches:
-                    content = matches[-1]
-                    # Clean up escaped characters
-                    content = content.replace('\\n', '\n').replace('\\"', '"')
-                    return content
+        """Extract clean content from LangGraph agent output"""
+        if not agent_output:
+            return "No output available"
 
-            # If it looks like it's already clean, return as is
-            if agent_output.startswith(("##", "**", "- ", "🔗", "🎯")):
-                return agent_output
+        # Convert to string if it's not already
+        output_str = str(agent_output)
 
-        elif isinstance(agent_output, dict):
-            # Try to get the output field
-            if "output" in agent_output:
-                return str(agent_output["output"])
-            elif "content" in agent_output:
-                return str(agent_output["content"])
+        # If it contains LangGraph messages, extract the actual content
+        if "AIMessage(content=" in output_str:
+            # Look for the content inside AIMessage
+            pattern = r"AIMessage\(content='(.*?)', additional_kwargs"
+            matches = re.findall(pattern, output_str, re.DOTALL)
+            if matches:
+                content = matches[-1]  # Get the last match
+                # Clean up escaped characters
+                content = content.replace('\\n', '\n').replace('\\"', '"')
+                return content
 
-        return str(agent_output) if agent_output else "No output available"
+        # If it's a dict with output key
+        if isinstance(agent_output, dict) and "output" in agent_output:
+            return str(agent_output["output"])
+
+        # If it already looks like clean content (starts with markdown headers)
+        if any(output_str.strip().startswith(marker) for marker in ["##", "**", "- ", "🔗", "📊"]):
+            return output_str.strip()
+
+        # If it's just a simple string response
+        if len(output_str) < 1000 and not "messages" in output_str:
+            return output_str.strip()
+
+        return "Unable to extract clean content from agent output"
 
     @staticmethod
     def format_response(agent_responses: Dict[str, Any], query: str) -> Dict[str, str]:
-        """Format multiple agent responses into a structured output."""
+        """Format multiple agent responses into a structured output"""
 
         graph_output = agent_responses.get("graph_output", "")
         tm_output = agent_responses.get("tm_output", "")
         final_output = agent_responses.get("final_output", "")
 
-        # Extract clean content
+        # Extract clean content using improved method
         clean_graph = EnhancedResponseFormatter._extract_clean_content(graph_output)
         clean_topic = EnhancedResponseFormatter._extract_clean_content(tm_output)
         clean_final = EnhancedResponseFormatter._extract_clean_content(final_output)
 
-        # Create a clean, readable response
+        # Create formatted response
         formatted_message = f"""# 🎯 Multi-Agent Research Analysis
 
 **Query:** {query}
 
 ---
 
-## 🔗 Knowledge Graph Analysis
 {clean_graph}
 
 ---
 
-## 📊 Topic Modeling Analysis  
 {clean_topic}
 
 ---
 
 ## ✨ Synthesized Insights
-{clean_final}
+{clean_final if clean_final != "No output available" else "Synthesis based on available agent outputs"}
 
 ---
 
-**System Info:** ✅ Graph Writer + ✅ Topic Model + ✅ Supervisor Synthesis
+**Database Status:** Neo4j: {'✅' if 'Neo4j Database' in clean_graph else '❌'} | MongoDB: {'✅' if 'MongoDB Database' in clean_topic else '❌'}
 """
 
         return {
             "status": "success",
             "message": formatted_message,
             "debug": {
-                "graph_clean": clean_graph[:200] + "..." if len(clean_graph) > 200 else clean_graph,
-                "topic_clean": clean_topic[:200] + "..." if len(clean_topic) > 200 else clean_topic
+                "graph_extracted": clean_graph[:100] + "..." if len(clean_graph) > 100 else clean_graph,
+                "topic_extracted": clean_topic[:100] + "..." if len(clean_topic) > 100 else clean_topic
             }
         }
-
-    @staticmethod
-    def _extract_content(agent_output: Dict[str, Any]) -> str:
-        """Legacy method - kept for compatibility"""
-        return EnhancedResponseFormatter._extract_clean_content(agent_output)
