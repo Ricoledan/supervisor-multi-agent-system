@@ -138,4 +138,4 @@ class WrappedAgent:
 
 
 # Export the fixed agent
-topic_model_agent = WrappedAgent()
+theme_analyst = WrappedAgent()

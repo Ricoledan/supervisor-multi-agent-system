@@ -148,4 +148,4 @@ class WrappedAgent:
 
 
 # Export the fixed agent
-graph_writer_agent = WrappedAgent()
+relationship_analyst = WrappedAgent()
