@@ -10,12 +10,12 @@ logger = logging.getLogger(__name__)
 
 class MongoDBConfig:
     def __init__(self):
-        self.host = os.getenv("MONGODB_HOST")
-        port_str = os.getenv("MONGODB_PORT")
+        self.host = os.getenv("MONGODB_HOST", "localhost")
+        port_str = os.getenv("MONGODB_PORT", "27017")
         self.port = int(port_str)
-        self.user = os.getenv("MONGODB_USER")
-        self.password = os.getenv("MONGODB_PASSWORD")
-        self.database = os.getenv("MONGODB_DB")
+        self.user = os.getenv("MONGODB_USER", "user")
+        self.password = os.getenv("MONGODB_PASSWORD", "password")
+        self.database = os.getenv("MONGODB_DB", "research_db")
         self._client = None
         logger.info(f"Initializing MongoDB config with host={self.host}, port={self.port}, db={self.database}")
 
@@ -23,13 +23,22 @@ class MongoDBConfig:
         if not self._client:
             try:
                 logger.info(f"Creating MongoDB client at {self.host}:{self.port}")
+                
+                # Build connection string for Docker MongoDB
+                if self.user and self.password:
+                    connection_string = f"mongodb://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}?authSource=admin"
+                else:
+                    connection_string = f"mongodb://{self.host}:{self.port}/{self.database}"
+                
+                logger.info(f"Using connection string: {connection_string.replace(self.password, '***')}")
+                
                 self._client = MongoClient(
-                    host=self.host,
-                    port=self.port,
-                    username=self.user,
-                    password=self.password,
+                    connection_string,
                     serverSelectionTimeoutMS=5000
                 )
+                
+                # Test the connection
+                self._client.server_info()
                 logger.debug("MongoDB client created successfully")
             except Exception as e:
                 logger.error(f"Failed to create MongoDB client: {str(e)}")

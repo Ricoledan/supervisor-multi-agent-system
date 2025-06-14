@@ -17,11 +17,13 @@ services:
     networks:
       - app-network
     environment:
-      # Override for container-to-container communication
       - NEO4J_URI=bolt://neo4j:7687
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
       - MONGODB_HOST=mongodb
+      - MONGODB_USER=user
+      - MONGODB_PASSWORD=password
+      - MONGODB_DB=research_db
 
   ingestor:
     build:
@@ -35,15 +37,17 @@ services:
       - neo4j
       - chromadb
       - mongodb
-    command: ["python", "src/utils/ingestion_pipeline.py", "--source", "/app/sources"]
+    command: ["python", "force_reingest.py"]
     networks:
       - app-network
     environment:
-      # Override for container-to-container communication
       - NEO4J_URI=bolt://neo4j:7687
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
       - MONGODB_HOST=mongodb
+      - MONGODB_USER=user
+      - MONGODB_PASSWORD=password
+      - MONGODB_DB=research_db
 
   neo4j:
     image: neo4j:latest
@@ -55,12 +59,10 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     environment:
-      - NEO4J_AUTH=${NEO4J_AUTH}
-      # Fixed memory settings for newer Neo4j versions
+      - NEO4J_AUTH=neo4j/password
       - NEO4J_server_memory_heap_initial__size=512m
       - NEO4J_server_memory_heap_max__size=1G
       - NEO4J_dbms_security_auth__enabled=true
-      # Disable strict validation if needed
       - NEO4J_server_config_strict__validation_enabled=false
     networks:
       - app-network
@@ -85,9 +87,9 @@ services:
     ports:
       - "27017:27017"
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USER}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD}
-      - MONGO_INITDB_DATABASE=${MONGODB_DB}
+      - MONGO_INITDB_ROOT_USERNAME=user
+      - MONGO_INITDB_ROOT_PASSWORD=password
+      - MONGO_INITDB_DATABASE=research_db
     volumes:
       - mongo-data:/data/db
     networks:
@@ -99,9 +101,9 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_USER}
-      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_PASSWORD}
-      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_USER}:${MONGODB_PASSWORD}@mongodb:27017/
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=user
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=password
+      - ME_CONFIG_MONGODB_URL=mongodb://user:password@mongodb:27017/
     networks:
       - app-network
     depends_on:
