@@ -16,6 +16,12 @@ services:
     command: ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]
     networks:
       - app-network
+    environment:
+      # Override for container-to-container communication
+      - NEO4J_URI=bolt://neo4j:7687
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - MONGODB_HOST=mongodb
 
   ingestor:
     build:
@@ -32,6 +38,12 @@ services:
     command: ["python", "src/utils/ingestion_pipeline.py", "--source", "/app/sources"]
     networks:
       - app-network
+    environment:
+      # Override for container-to-container communication
+      - NEO4J_URI=bolt://neo4j:7687
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - MONGODB_HOST=mongodb
 
   neo4j:
     image: neo4j:latest
@@ -44,9 +56,12 @@ services:
       - neo4j_logs:/logs
     environment:
       - NEO4J_AUTH=${NEO4J_AUTH}
+      # Fixed memory settings for newer Neo4j versions
       - NEO4J_server_memory_heap_initial__size=512m
       - NEO4J_server_memory_heap_max__size=1G
       - NEO4J_dbms_security_auth__enabled=true
+      # Disable strict validation if needed
+      - NEO4J_server_config_strict__validation_enabled=false
     networks:
       - app-network
 
@@ -56,8 +71,8 @@ services:
     ports:
       - "8001:8000"
     environment:
-      - CHROMA_SERVER_HOST=${CHROMA_HOST}
-      - CHROMA_SERVER_PORT=${CHROMA_PORT}
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_PORT=8000
     volumes:
       - chromadb_data:/chroma
     networks:
