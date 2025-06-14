@@ -1,3 +1,5 @@
+# src/utils/ingestion_pipeline.py - FIXED VERSION
+
 import logging
 from pathlib import Path
 from typing import Dict
@@ -20,157 +22,141 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-class PdfIngestionPipeline:
+class FixedPdfIngestionPipeline:
     def __init__(self):
+        """Initialize with proper error handling and connection testing"""
         self.embeddings = OpenAIEmbeddings()
         self.model = get_openai_model()
         self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
+        # Initialize all database connections with proper error handling
         self._init_vectordb_connection()
         self._init_graphdb_connection()
         self._init_mongodb_connection()
 
     def _init_vectordb_connection(self):
+        """Initialize ChromaDB connection"""
         try:
             chroma_config = ChromaDBConfig()
             self.vector_db = chroma_config.get_client()
-            self.vector_collection = self.vector_db.get_or_create_collection("academic_papers")
-            logger.info("Vector DB connection established")
+            # Get or create collection - use the consistent name
+            self.vector_collection = chroma_config.get_collection("academic_papers")
+            logger.info("✅ ChromaDB connection established")
         except Exception as e:
-            logger.error(f"Failed to connect to Vector DB: {e}")
+            logger.error(f"❌ Failed to connect to ChromaDB: {e}")
             self.vector_db = None
+            self.vector_collection = None
 
     def _init_graphdb_connection(self):
+        """Initialize Neo4j connection"""
         try:
             self.graph_db = get_neo4j_driver()
-            logger.info("Graph DB connection established")
+            # Test the connection
+            with self.graph_db.session() as session:
+                session.run("RETURN 1")
+            logger.info("✅ Neo4j connection established")
         except Exception as e:
-            logger.error(f"Failed to connect to Neo4j: {e}")
+            logger.error(f"❌ Failed to connect to Neo4j: {e}")
             self.graph_db = None
 
     def _init_mongodb_connection(self):
+        """Initialize MongoDB connection"""
         try:
             self.mongo_db = get_mongodb()
-            logger.info("MongoDB connection established")
+            # Test the connection
+            self.mongo_db.list_collection_names()
+            logger.info("✅ MongoDB connection established")
         except Exception as e:
-            logger.error(f"Failed to connect to MongoDB: {e}")
+            logger.error(f"❌ Failed to connect to MongoDB: {e}")
             self.mongo_db = None
 
     def generate_paper_id(self, pdf_path, metadata=None):
         """Generate consistent paper ID for all databases"""
-        # Use filename as primary identifier for consistency
         filename = str(pdf_path.name)
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, filename))
 
     def is_already_processed(self, paper_id, pdf_path):
-        """Check if paper is already processed in ANY database"""
+        """Check if paper exists in ANY database - skip if found"""
         filename = str(pdf_path.name)
 
-        # Check MongoDB first (fastest)
+        # Check MongoDB first (fastest check)
         if self.mongo_db is not None:
-            existing_mongo = self.mongo_db.papers.find_one({
-                "$or": [
-                    {"paper_id": paper_id},
-                    {"source": filename}
-                ]
-            })
-            if existing_mongo:
-                logger.info(f"Paper {filename} already exists in MongoDB")
-                return True
-
-        # Check Neo4j
-        if self.graph_db is not None:
             try:
-                with self.graph_db.session() as session:
-                    result = session.run("MATCH (p:Paper {id: $paper_id}) RETURN p", paper_id=paper_id)
-                    if result.single():
-                        logger.info(f"Paper {filename} already exists in Neo4j")
-                        return True
-            except Exception as e:
-                logger.warning(f"Could not check Neo4j for duplicates: {e}")
-
-        # Check ChromaDB
-        if self.vector_db is not None:
-            try:
-                # Query for existing chunks with this paper_id
-                existing_chunks = self.vector_collection.get(
-                    where={"paper_id": paper_id},
-                    limit=1
-                )
-                if existing_chunks['ids']:
-                    logger.info(f"Paper {filename} already exists in ChromaDB")
+                existing = self.mongo_db.papers.find_one({
+                    "$or": [
+                        {"paper_id": paper_id},
+                        {"source": filename}
+                    ]
+                })
+                if existing:
+                    logger.info(f"📋 Paper {filename} already exists in MongoDB - skipping")
                     return True
             except Exception as e:
-                logger.warning(f"Could not check ChromaDB for duplicates: {e}")
+                logger.warning(f"Could not check MongoDB: {e}")
 
-        return False
+        return False  # Process if not found or can't check
 
     def extract_metadata(self, documents) -> Dict:
-        """Extract structured metadata from document using LLM"""
+        """Extract metadata with better fallback handling"""
         try:
-            if documents and hasattr(documents[0], 'metadata'):
-                pdf_metadata = documents[0].metadata
-                # Use PDF metadata if available
-                if pdf_metadata.get('title') and pdf_metadata.get('author'):
-                    return {
-                        'title': pdf_metadata.get('title'),
-                        'authors': [pdf_metadata.get('author')],
-                        'year': pdf_metadata.get('creationDate', '').split('-')[0] if '-' in pdf_metadata.get(
-                            'creationDate', '') else None,
-                        'source': pdf_metadata.get('source', ''),
-                        'doi': pdf_metadata.get('doi', ''),
-                        'abstract': '',
-                        'journal': '',
-                        'keywords': []
-                    }
+            # Try LLM extraction first
+            if documents:
+                text = "\n".join([doc.page_content for doc in documents[:3]])
+                formatted_messages = METADATA_EXTRACTION_PROMPT.format_messages(text=text)
+                response = self.model.invoke(formatted_messages)
 
-            # Use LLM to extract metadata from text
-            text = "\n".join([doc.page_content for doc in documents[:3]])
-            formatted_messages = METADATA_EXTRACTION_PROMPT.format_messages(text=text)
-            response = self.model.invoke(formatted_messages)
+                try:
+                    metadata = eval(response.content)
+                    if isinstance(metadata, dict) and metadata.get('title'):
+                        # Add source from document metadata
+                        if hasattr(documents[0], 'metadata') and 'source' in documents[0].metadata:
+                            metadata['source'] = documents[0].metadata['source']
+                        return metadata
+                except:
+                    pass  # Fall through to fallback
 
-            try:
-                # Try to parse LLM response as dict
-                metadata = eval(response.content)
-            except:
-                # Fallback: create basic metadata from filename
-                logger.warning("Failed to parse LLM metadata, using fallback")
-                metadata = {
-                    "title": "Unknown Paper",
-                    "authors": ["Unknown Author"],
-                    "year": None,
-                    "journal": "",
-                    "abstract": text[:200] + "..." if len(text) > 200 else text,
-                    "doi": "",
-                    "keywords": []
-                }
-
-            # Always add source from document metadata
-            if documents and hasattr(documents[0], 'metadata') and 'source' in documents[0].metadata:
-                metadata['source'] = documents[0].metadata['source']
-
-            return metadata
-        except Exception as e:
-            logger.error(f"Error extracting metadata: {e}")
-            # Return safe fallback
+            # Fallback metadata
             source = ""
             if documents and hasattr(documents[0], 'metadata'):
                 source = documents[0].metadata.get('source', '')
+
             return {
-                "title": f"Paper from {Path(source).name}" if source else "Unknown Paper",
+                "title": f"Academic Paper - {Path(source).stem}" if source else "Unknown Paper",
                 "authors": ["Unknown Author"],
                 "year": None,
                 "source": source,
+                "abstract": documents[0].page_content[:200] + "..." if documents else "",
+                "journal": "",
+                "keywords": []
+            }
+
+        except Exception as e:
+            logger.error(f"Error extracting metadata: {e}")
+            return {
+                "title": "Error Extracting Title",
+                "authors": ["Unknown"],
+                "year": None,
+                "source": "",
                 "abstract": "",
                 "journal": "",
                 "keywords": []
             }
 
     def create_embeddings(self, documents):
+        """Create embeddings for ChromaDB"""
         try:
             chunks = self.text_splitter.split_documents(documents)
             chunk_texts = [chunk.page_content for chunk in chunks]
+
+            if not chunk_texts:
+                logger.warning("No text chunks created for embedding")
+                return {"chunks": [], "embeddings": [], "metadata": []}
+
+            # Create embeddings
             embedding_vectors = self.embeddings.embed_documents(chunk_texts)
+
+            logger.info(f"Created {len(embedding_vectors)} embeddings for {len(chunks)} chunks")
+
             return {
                 "chunks": chunks,
                 "embeddings": embedding_vectors,
@@ -180,139 +166,144 @@ class PdfIngestionPipeline:
             logger.error(f"Error creating embeddings: {e}")
             return {"chunks": [], "embeddings": [], "metadata": []}
 
-    def store_in_vectordb(self, embedding_data, paper_id):
-        if self.vector_db is None:
-            logger.error("Vector DB connection not available")
+    def store_in_vectordb(self, embedding_data, paper_id, metadata):
+        """Store embeddings in ChromaDB - FIXED"""
+        if self.vector_collection is None:
+            logger.error("ChromaDB collection not available")
             return False
 
         try:
             chunks = embedding_data["chunks"]
             embeddings = embedding_data["embeddings"]
-            if not chunks:
-                logger.warning("No chunks to store in vector DB")
+
+            if not chunks or not embeddings:
+                logger.warning("No chunks or embeddings to store")
                 return False
 
-            # Create consistent chunk IDs to prevent duplicates
+            # Create unique IDs for chunks
             ids = [f"{paper_id}-chunk-{i}" for i in range(len(chunks))]
 
-            # Check if any chunks already exist
-            try:
-                existing = self.vector_collection.get(ids=ids[:1])  # Check first ID
-                if existing['ids']:
-                    logger.info("Chunks already exist in ChromaDB, skipping vector storage")
-                    return True
-            except:
-                pass  # Continue if check fails
-
+            # Create metadata for each chunk
             metadatas = []
             documents = []
+
             for i, chunk in enumerate(chunks):
-                metadatas.append({
+                chunk_metadata = {
                     "paper_id": paper_id,
                     "page": chunk.metadata.get("page", 0),
                     "source": chunk.metadata.get("source", ""),
                     "chunk_id": i,
-                    "title": embedding_data.get("metadata", {}).get("title", "")
-                })
+                    "title": metadata.get("title", "Unknown"),
+                    "authors": str(metadata.get("authors", [])),  # Convert to string for ChromaDB
+                    "year": metadata.get("year", "Unknown")
+                }
+                metadatas.append(chunk_metadata)
                 documents.append(chunk.page_content)
 
-            # Use upsert to handle potential duplicates
+            # Store in ChromaDB
             self.vector_collection.upsert(
                 ids=ids,
                 embeddings=embeddings,
                 metadatas=metadatas,
                 documents=documents
             )
-            logger.info(f"Stored/updated {len(ids)} chunks in Vector DB")
+
+            logger.info(f"✅ Stored {len(ids)} chunks in ChromaDB")
             return True
+
         except Exception as e:
-            logger.error(f"Failed to store in Vector DB: {e}")
+            logger.error(f"❌ Failed to store in ChromaDB: {e}")
             return False
 
     def extract_entities(self, documents):
+        """Extract entities for Neo4j with better error handling"""
         try:
-            # Combine first 10 pages of text for entity extraction
-            text = "\n\n".join([doc.page_content for doc in documents[:10]])
+            # Use first 5 pages for entity extraction
+            text = "\n\n".join([doc.page_content for doc in documents[:5]])
+
             formatted_messages = ENTITY_EXTRACTION_PROMPT.format_messages(text=text)
             response = self.model.invoke(formatted_messages)
 
             try:
                 entities = eval(response.content)
-                # Ensure proper structure
                 if not isinstance(entities, dict):
                     raise ValueError("Invalid entity structure")
-                if "concepts" not in entities:
-                    entities["concepts"] = []
-                if "relationships" not in entities:
-                    entities["relationships"] = []
-            except:
-                logger.warning("Failed to parse entity extraction, using fallback")
-                # Create simple fallback entities from text
-                entities = self._extract_fallback_entities(text)
 
-            return entities
+                # Ensure required keys exist
+                entities.setdefault("concepts", [])
+                entities.setdefault("relationships", [])
+
+                logger.info(
+                    f"Extracted {len(entities.get('concepts', []))} concepts and {len(entities.get('relationships', []))} relationships")
+                return entities
+
+            except:
+                # Fallback: extract simple entities
+                logger.warning("LLM entity extraction failed, using fallback")
+                return self._extract_fallback_entities(text)
+
         except Exception as e:
             logger.error(f"Error extracting entities: {e}")
             return {"concepts": [], "relationships": []}
 
     def _extract_fallback_entities(self, text):
-        """Simple keyword-based entity extraction as fallback"""
+        """Simple fallback entity extraction"""
         import re
 
-        # Simple regex patterns for common academic concepts
+        # Extract capitalized phrases as concepts
         concept_patterns = [
-            r'\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b',  # Capitalized phrases
+            r'\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b',
             r'\b(?:machine learning|artificial intelligence|neural network|deep learning)\b',
-            r'\b(?:algorithm|model|method|approach|technique)\b',
         ]
 
         concepts = []
+        seen_concepts = set()
+
         for pattern in concept_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
-            for match in matches[:10]:  # Limit to 10 concepts
-                concepts.append({
-                    "name": match,
-                    "category": "extracted_concept",
-                    "description": f"Concept extracted from text: {match}"
-                })
+            for match in matches[:10]:  # Limit to avoid too many
+                if match.lower() not in seen_concepts and len(match) > 3:
+                    concepts.append({
+                        "name": match,
+                        "category": "extracted_concept",
+                        "description": f"Concept extracted from text: {match}"
+                    })
+                    seen_concepts.add(match.lower())
 
         return {
             "concepts": concepts[:10],  # Limit concepts
-            "relationships": []  # Keep relationships empty for fallback
+            "relationships": []  # No relationships in fallback
         }
 
-    def store_in_graphdb(self, entities, paper_id, metadata=None):
+    def store_in_graphdb(self, entities, paper_id, metadata):
+        """Store in Neo4j - FIXED with better error handling"""
         if self.graph_db is None:
-            logger.error("Graph DB connection not available")
+            logger.error("Neo4j connection not available")
             return False
+
         try:
             with self.graph_db.session() as session:
-                # Check if paper already exists
-                result = session.run("MATCH (p:Paper {id: $paper_id}) RETURN p", paper_id=paper_id)
-                if result.single():
-                    logger.info("Paper already exists in Neo4j, skipping graph storage")
-                    return True
-
-                # Create paper node
+                # Create paper node first
                 paper_props = {
                     "id": paper_id,
-                    "title": metadata.get("title", "Unknown") if metadata else "Unknown",
-                    "year": metadata.get("year") if metadata else None
+                    "title": metadata.get("title", "Unknown"),
+                    "year": metadata.get("year"),
+                    "source": metadata.get("source", "")
                 }
 
                 session.run(
                     """
                     MERGE (p:Paper {id: $id})
-                    SET p.title = $title, p.year = $year
-                    RETURN p
+                    SET p.title = $title, p.year = $year, p.source = $source
                     """,
                     **paper_props
                 )
 
                 # Create author nodes and relationships
-                if metadata and "authors" in metadata:
-                    for author in metadata["authors"]:
-                        if author and author.strip():  # Only if author is not empty
+                authors = metadata.get("authors", [])
+                if authors:
+                    for author in authors:
+                        if author and author.strip() and author != "Unknown Author":
                             session.run(
                                 """
                                 MERGE (a:Author {name: $name})
@@ -325,90 +316,100 @@ class PdfIngestionPipeline:
                             )
 
                 # Create concept nodes and relationships
-                for concept in entities.get("concepts", []):
-                    if concept.get("name"):  # Only if concept has a name
-                        session.run(
-                            """
-                            MERGE (c:Concept {name: $name})
-                            SET c.category = $category, c.description = $description
-                            WITH c
-                            MATCH (p:Paper {id: $paper_id})
-                            MERGE (p)-[:CONTAINS]->(c) 
-                            RETURN c
-                            """,
-                            name=concept.get("name"),
-                            category=concept.get("category", ""),
-                            description=concept.get("description", ""),
-                            paper_id=paper_id
-                        )
+                concepts = entities.get("concepts", [])
+                if concepts:
+                    for concept in concepts:
+                        name = concept.get("name", "").strip()
+                        if name:
+                            session.run(
+                                """
+                                MERGE (c:Concept {name: $name})
+                                SET c.category = $category, c.description = $description
+                                WITH c
+                                MATCH (p:Paper {id: $paper_id})
+                                MERGE (p)-[:CONTAINS]->(c)
+                                """,
+                                name=name,
+                                category=concept.get("category", ""),
+                                description=concept.get("description", ""),
+                                paper_id=paper_id
+                            )
 
                 # Create relationships between concepts
-                for rel in entities.get("relationships", []):
-                    if rel.get("from") and rel.get("to"):  # Only if both ends exist
-                        session.run(
-                            """
-                            MATCH (a:Concept {name: $from_name}), (b:Concept {name: $to_name})
-                            MERGE (a)-[r:RELATES_TO {type: $type}]->(b)
-                            SET r.description = $description
-                            """,
-                            from_name=rel.get("from"),
-                            to_name=rel.get("to"),
-                            type=rel.get("type", "related_to"),
-                            description=rel.get("description", "")
-                        )
+                relationships = entities.get("relationships", [])
+                if relationships:
+                    for rel in relationships:
+                        from_name = rel.get("from", "").strip()
+                        to_name = rel.get("to", "").strip()
+                        if from_name and to_name:
+                            session.run(
+                                """
+                                MATCH (a:Concept {name: $from_name}), (b:Concept {name: $to_name})
+                                MERGE (a)-[r:RELATES_TO {type: $type}]->(b)
+                                SET r.description = $description
+                                """,
+                                from_name=from_name,
+                                to_name=to_name,
+                                type=rel.get("type", "related_to"),
+                                description=rel.get("description", "")
+                            )
 
-            logger.info(
-                f"Stored {len(entities.get('concepts', []))} concepts and {len(entities.get('relationships', []))} relationships in Neo4j")
+            logger.info(f"✅ Stored paper with {len(concepts)} concepts in Neo4j")
             return True
+
         except Exception as e:
-            logger.error(f"Failed to store in Neo4j: {e}")
+            logger.error(f"❌ Failed to store in Neo4j: {e}")
             return False
 
     def store_in_mongodb(self, documents, metadata, entities, paper_id):
+        """Store in MongoDB - FIXED"""
         if self.mongo_db is None:
             logger.error("MongoDB connection not available")
             return False
+
         try:
-            paper_collection = self.mongo_db.papers
+            papers_collection = self.mongo_db.papers
 
-            # Check if already exists
-            existing = paper_collection.find_one({"paper_id": paper_id})
-            if existing:
-                logger.info("Paper already exists in MongoDB, skipping document storage")
-                return True
-
-            source = ""
-            if documents and hasattr(documents[0], 'metadata') and 'source' in documents[0].metadata:
-                source = documents[0].metadata['source']
-
+            # Create document for MongoDB
             paper_doc = {
                 "paper_id": paper_id,
-                "source": source,
-                "metadata": metadata or {},
-                "content": [{"page": i, "text": doc.page_content} for i, doc in enumerate(documents)],
-                "entities": entities or {},
-                "processed_at": pd.Timestamp.now()
+                "source": metadata.get("source", ""),
+                "metadata": metadata,
+                "content": [
+                    {"page": i, "text": doc.page_content}
+                    for i, doc in enumerate(documents)
+                ],
+                "entities": entities,
+                "processed_at": pd.Timestamp.now().isoformat()
             }
 
-            result = paper_collection.insert_one(paper_doc)
-            logger.info(f"Stored document in MongoDB with ID: {result.inserted_id}")
+            # Insert or update
+            result = papers_collection.replace_one(
+                {"paper_id": paper_id},
+                paper_doc,
+                upsert=True
+            )
+
+            logger.info(f"✅ Stored paper in MongoDB (upserted: {result.upserted_id is not None})")
             return True
+
         except Exception as e:
-            logger.error(f"Failed to store in MongoDB: {e}")
+            logger.error(f"❌ Failed to store in MongoDB: {e}")
             return False
 
     def process_pdf(self, pdf_path):
-        logger.info(f"Processing PDF: {pdf_path}")
+        """Process a single PDF with improved error handling"""
+        logger.info(f"🔄 Processing PDF: {pdf_path.name}")
 
         try:
-            # Generate consistent paper ID
+            # Generate paper ID
             paper_id = self.generate_paper_id(pdf_path)
 
-            # Check if already processed in ANY database
+            # Check if already processed
             if self.is_already_processed(paper_id, pdf_path):
-                logger.info(f"✅ Skipping {pdf_path.name} - already processed in databases")
                 return True
 
+            # Load PDF
             loader = PyPDFLoader(str(pdf_path))
             documents = loader.load()
 
@@ -416,60 +417,79 @@ class PdfIngestionPipeline:
                 logger.warning(f"No content extracted from {pdf_path}")
                 return False
 
-            # Extract metadata with better error handling
+            logger.info(f"Loaded {len(documents)} pages from PDF")
+
+            # Extract metadata
             metadata = self.extract_metadata(documents)
-            logger.info(f"Extracted metadata: {metadata.get('title', 'Unknown')}")
+            logger.info(f"Extracted metadata: {metadata.get('title', 'Unknown')[:50]}...")
 
-            # Create embeddings
-            embedding_data = self.create_embeddings(documents)
-            embedding_data["metadata"] = metadata
+            # Track success for each database
+            results = {"vector": False, "graph": False, "mongo": False}
 
-            # Store in databases
-            vector_success = self.store_in_vectordb(embedding_data, paper_id)
+            # Store in ChromaDB
+            if self.vector_collection is not None:
+                embedding_data = self.create_embeddings(documents)
+                results["vector"] = self.store_in_vectordb(embedding_data, paper_id, metadata)
 
-            entities = self.extract_entities(documents)
-            graph_success = self.store_in_graphdb(entities, paper_id, metadata)
+            # Store in Neo4j
+            if self.graph_db is not None:
+                entities = self.extract_entities(documents)
+                results["graph"] = self.store_in_graphdb(entities, paper_id, metadata)
+            else:
+                entities = {"concepts": [], "relationships": []}
 
-            mongo_success = self.store_in_mongodb(documents, metadata, entities, paper_id)
+            # Store in MongoDB
+            if self.mongo_db is not None:
+                results["mongo"] = self.store_in_mongodb(documents, metadata, entities, paper_id)
 
-            if vector_success or graph_success or mongo_success:
-                logger.info(f"✅ Successfully processed {pdf_path}")
+            # Report results
+            success_count = sum(results.values())
+            total_dbs = sum(1 for db in [self.vector_collection, self.graph_db, self.mongo_db] if db is not None)
+
+            if success_count == total_dbs:
+                logger.info(f"✅ Successfully stored {pdf_path.name} in all {total_dbs} databases")
+                return True
+            elif success_count > 0:
+                logger.warning(f"⚠️ Partially stored {pdf_path.name}: {results}")
                 return True
             else:
-                logger.error(f"❌ Failed to store {pdf_path} in any database")
+                logger.error(f"❌ Failed to store {pdf_path.name} in any database")
                 return False
 
         except Exception as e:
-            logger.error(f"Error processing {pdf_path}: {e}")
+            logger.error(f"❌ Error processing {pdf_path}: {e}", exc_info=True)
             return False
 
     def close_connections(self):
-        """Close any open connections"""
-        if self.graph_db is not None:
+        """Close database connections"""
+        if hasattr(self, 'graph_db') and self.graph_db:
             self.graph_db.close()
         logger.info("Database connections closed")
 
 
 def quick_test_ingestion():
-    """Test ingestion with just one paper - for article demo"""
+    """Test ingestion with one paper"""
     source_path = Path("sources")
     if not source_path.exists():
         print(f"❌ Sources directory not found: {source_path}")
+        print("   Creating sources directory...")
+        source_path.mkdir(exist_ok=True)
+        print("   📁 Please add PDF files to the sources/ folder")
         return False
 
     pdf_files = list(source_path.glob('*.pdf'))
-
     if not pdf_files:
         print(f"❌ No PDFs found in {source_path}")
+        print("   📁 Please add academic PDF files to sources/")
         return False
 
-    print(f"✅ Found {len(pdf_files)} PDFs:")
+    print(f"✅ Found {len(pdf_files)} PDFs")
     for pdf in pdf_files:
-        print(f"  - {pdf.name}")
+        print(f"   📄 {pdf.name}")
 
-    # Test with first paper only
+    # Test with first paper
     print(f"\n🔄 Testing ingestion with: {pdf_files[0].name}")
-    pipeline = PdfIngestionPipeline()
+    pipeline = FixedPdfIngestionPipeline()
 
     try:
         success = pipeline.process_pdf(pdf_files[0])
@@ -477,27 +497,25 @@ def quick_test_ingestion():
         if success:
             print(f"✅ Successfully processed {pdf_files[0].name}")
 
-            # Verify it's in MongoDB
-            if pipeline.mongo_db is not None:
-                papers = list(pipeline.mongo_db.papers.find().limit(1))
-                if papers:
-                    title = papers[0].get('metadata', {}).get('title', 'Unknown')
-                    print(f"✅ Found in MongoDB: {title}")
-                else:
-                    print("⚠️  Not found in MongoDB")
+            # Verify in all databases
+            print("\n🔍 Verification:")
+
+            # Check MongoDB
+            if pipeline.mongo_db:
+                count = pipeline.mongo_db.papers.count_documents({})
+                print(f"   📊 MongoDB: {count} papers")
 
             # Check Neo4j
-            if pipeline.graph_db is not None:
+            if pipeline.graph_db:
                 with pipeline.graph_db.session() as session:
                     result = session.run("MATCH (p:Paper) RETURN count(p) as count")
                     count = result.single()["count"]
-                    print(f"✅ Found {count} papers in Neo4j")
+                    print(f"   🔗 Neo4j: {count} papers")
 
             # Check ChromaDB
-            if pipeline.vector_db is not None:
-                collection = pipeline.vector_collection
-                result = collection.count()
-                print(f"✅ Found {result} chunks in ChromaDB")
+            if pipeline.vector_collection:
+                count = pipeline.vector_collection.count()
+                print(f"   🔍 ChromaDB: {count} vectors")
 
             return True
         else:
@@ -511,44 +529,39 @@ def quick_test_ingestion():
         pipeline.close_connections()
 
 
-def ingest_pdfs(source_dir):
+def ingest_all_pdfs(source_dir="sources"):
     """Process all PDFs in source directory"""
     source_path = Path(source_dir)
     if not source_path.exists():
         logger.error(f"Source directory {source_dir} does not exist")
         return
 
-    pipeline = PdfIngestionPipeline()
+    pipeline = FixedPdfIngestionPipeline()
     try:
         pdf_files = list(source_path.glob('*.pdf'))
-        logger.info(f"Found {len(pdf_files)} PDF files in {source_dir}")
+        logger.info(f"Found {len(pdf_files)} PDF files")
 
         if not pdf_files:
             logger.warning("No PDF files found to process")
             return
 
         successful = 0
-        skipped = 0
         for pdf_file in tqdm(pdf_files, desc="Processing PDFs"):
             if pipeline.process_pdf(pdf_file):
                 successful += 1
-            else:
-                skipped += 1
 
-        logger.info(f"Successfully processed {successful}/{len(pdf_files)} PDFs ({skipped} skipped)")
+        logger.info(f"Successfully processed {successful}/{len(pdf_files)} PDFs")
 
     except Exception as e:
         logger.error(f"Error in ingestion process: {e}")
     finally:
         pipeline.close_connections()
 
-    logger.info("PDF ingestion complete")
-
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Ingest academic PDFs into databases")
+    parser = argparse.ArgumentParser(description="Ingest academic PDFs into all databases")
     parser.add_argument("--source", type=str, default="sources", help="Directory containing PDF files")
     parser.add_argument("--test", action="store_true", help="Run quick test with one paper")
 
@@ -558,8 +571,9 @@ if __name__ == "__main__":
         print("🧪 Running quick ingestion test...")
         success = quick_test_ingestion()
         if success:
-            print("\n🎉 Test successful! Ready for article demo.")
+            print("\n🎉 Test successful! All databases populated.")
         else:
-            print("\n❌ Test failed. Check your setup.")
+            print("\n❌ Test failed. Check setup and try again.")
     else:
-        ingest_pdfs(args.source)
+        print(f"🚀 Starting full ingestion from {args.source}")
+        ingest_all_pdfs(args.source)
