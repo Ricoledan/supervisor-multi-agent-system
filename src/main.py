@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from api.v1.endpoints import status, agent
+from src.api.v1.endpoints import status, agent
 from src.databases.graph.config import get_neo4j_driver, neo4j_config
 from src.databases.vector.config import ChromaDBConfig
 from src.databases.document.config import mongo_db_config, get_mongodb_client

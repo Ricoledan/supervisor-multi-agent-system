@@ -1,8 +1,6 @@
-# src/api/v1/endpoints/agent.py - CLEANED UP VERSION
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from src.domain.agents.research_coordinator import run_supervisor
+from src.domain.agents.research_coordinator import run_research_coordinator
 import re
 
 router = APIRouter()
@@ -112,17 +110,17 @@ def process_query(request: QueryRequest):
     Process query and return clean, readable output
     """
     try:
-        # Run the supervisor workflow
-        response = run_supervisor(request.query)
+        # Run the supervisor workflow - FIXED: Use correct function name
+        response = run_research_coordinator(request.query)
 
-        # Extract outputs
-        graph_output = response.get("graph_output", "")
-        tm_output = response.get("tm_output", "")
+        # Extract outputs - FIXED: Use correct field names from coordinator
+        relationship_output = response.get("relationship_output", "")
+        theme_output = response.get("theme_output", "")
         final_output = response.get("final_output", "")
 
         # Clean each output
-        clean_graph = extract_clean_content(graph_output)
-        clean_topic = extract_clean_content(tm_output)
+        clean_relationship = extract_clean_content(relationship_output)
+        clean_theme = extract_clean_content(theme_output)
         clean_final = extract_clean_content(final_output)
 
         # Check for database usage
@@ -133,58 +131,58 @@ def process_query(request: QueryRequest):
             ]
             return any(indicator.lower() in content.lower() for indicator in indicators)
 
-        graph_has_data = has_real_data(clean_graph)
-        topic_has_data = has_real_data(clean_topic)
+        relationship_has_data = has_real_data(clean_relationship)
+        theme_has_data = has_real_data(clean_theme)
 
         # Create clean, formatted response
-        if graph_has_data and topic_has_data:
+        if relationship_has_data and theme_has_data:
             # Both agents working with data
             formatted_message = f"""**🎯 Research Analysis Results**
 
 *Query:* {request.query}
 
-**📊 Knowledge Graph Findings:**
-{clean_graph}
+**🔗 Relationship Analysis:**
+{clean_relationship}
 
-**🏷️ Topic Analysis:**
-{clean_topic}
+**📊 Theme Analysis:**
+{clean_theme}
 
-**💡 Key Insights:**
+**💡 Synthesis:**
 {clean_final}
 
 *System Status: ✅ All agents active with database content*"""
 
-        elif graph_has_data:
-            # Only graph agent working
+        elif relationship_has_data:
+            # Only relationship agent working
             formatted_message = f"""**🎯 Research Analysis Results**
 
 *Query:* {request.query}
 
-**📊 Knowledge Graph Analysis:**
-{clean_graph}
+**🔗 Relationship Analysis:**
+{clean_relationship}
 
-**⚠️ Topic Analysis:** Limited data available
+**⚠️ Theme Analysis:** Limited data available
 
 **💡 Summary:**
 {clean_final}
 
-*System Status: 🟡 Graph data available, topics need attention*"""
+*System Status: 🟡 Relationship data available, themes need attention*"""
 
-        elif topic_has_data:
-            # Only topic agent working
+        elif theme_has_data:
+            # Only theme agent working
             formatted_message = f"""**🎯 Research Analysis Results**
 
 *Query:* {request.query}
 
-**🏷️ Topic Analysis:**
-{clean_topic}
+**📊 Theme Analysis:**
+{clean_theme}
 
-**⚠️ Graph Analysis:** Limited data available
+**⚠️ Relationship Analysis:** Limited data available
 
 **💡 Summary:**
 {clean_final}
 
-*System Status: 🟡 Topic data available, graph needs attention*"""
+*System Status: 🟡 Theme data available, relationships need attention*"""
 
         else:
             # Generic response mode
@@ -205,11 +203,11 @@ def process_query(request: QueryRequest):
             "message": formatted_message,
             "query": request.query,
             "system_health": {
-                "graph_agent": "✅ Active" if clean_graph != "No response available" else "❌ Inactive",
-                "topic_agent": "✅ Active" if clean_topic != "No response available" else "❌ Inactive",
-                "database_usage": "✅ High" if (graph_has_data and topic_has_data) else "🟡 Partial" if (
-                            graph_has_data or topic_has_data) else "❌ Low",
-                "response_quality": "Database-driven" if (graph_has_data or topic_has_data) else "General knowledge"
+                "relationship_analyst": "✅ Active" if clean_relationship != "No response available" else "❌ Inactive",
+                "theme_analyst": "✅ Active" if clean_theme != "No response available" else "❌ Inactive",
+                "database_usage": "✅ High" if (relationship_has_data and theme_has_data) else "🟡 Partial" if (
+                        relationship_has_data or theme_has_data) else "❌ Low",
+                "response_quality": "Database-driven" if (relationship_has_data or theme_has_data) else "General knowledge"
             }
         }
 
@@ -223,13 +221,13 @@ def process_query_raw(request: QueryRequest):
     Raw output endpoint for debugging
     """
     try:
-        response = run_supervisor(request.query)
+        response = run_research_coordinator(request.query)
         return {
             "status": "success",
             "message": str(response.get("final_output", "")),
             "debug": {
-                "graph_output": str(response.get("graph_output", "")),
-                "tm_output": str(response.get("tm_output", ""))
+                "relationship_output": str(response.get("relationship_output", "")),
+                "theme_output": str(response.get("theme_output", ""))
             }
         }
     except Exception as e:
