@@ -9,6 +9,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from src.databases.vector.config import ChromaDBConfig
 
 SOURCE_DIR = os.getenv("SOURCE_DIR", "sources")
+# FIXED: Use consistent collection name
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "academic_papers")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))

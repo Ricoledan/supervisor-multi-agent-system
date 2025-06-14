@@ -1,11 +1,12 @@
-# src/utils/ingestion_pipeline.py - FIXED VERSION
+# src/utils/ingestion_pipeline.py
 
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 import pandas as pd
 import uuid
 from tqdm import tqdm
+import json
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -16,13 +17,12 @@ from src.databases.graph.config import get_neo4j_driver
 from src.databases.vector.config import ChromaDBConfig
 
 from src.utils.model_init import get_openai_model
-from src.domain.prompts.agent_prompts import METADATA_EXTRACTION_PROMPT, ENTITY_EXTRACTION_PROMPT
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-class FixedPdfIngestionPipeline:
+class PdfIngestionPipeline:
     def __init__(self):
         """Initialize with proper error handling and connection testing"""
         self.embeddings = OpenAIEmbeddings()
@@ -97,154 +97,157 @@ class FixedPdfIngestionPipeline:
         return False  # Process if not found or can't check
 
     def extract_metadata(self, documents) -> Dict:
-        """Extract metadata with better fallback handling"""
+        """Extract metadata with better academic focus"""
         try:
-            # Try LLM extraction first
-            if documents:
-                text = "\n".join([doc.page_content for doc in documents[:3]])
-                formatted_messages = METADATA_EXTRACTION_PROMPT.format_messages(text=text)
-                response = self.model.invoke(formatted_messages)
+            # Get first few pages for better metadata extraction
+            text = "\n".join([doc.page_content for doc in documents[:5]])
 
-                try:
-                    metadata = eval(response.content)
-                    if isinstance(metadata, dict) and metadata.get('title'):
-                        # Add source from document metadata
-                        if hasattr(documents[0], 'metadata') and 'source' in documents[0].metadata:
-                            metadata['source'] = documents[0].metadata['source']
-                        return metadata
-                except:
-                    pass  # Fall through to fallback
+            metadata_prompt = f"""
+            Extract detailed metadata from this academic paper. Focus on:
 
-            # Fallback metadata
-            source = ""
-            if documents and hasattr(documents[0], 'metadata'):
-                source = documents[0].metadata.get('source', '')
+            Text: {text[:4000]}
 
-            return {
-                "title": f"Academic Paper - {Path(source).stem}" if source else "Unknown Paper",
-                "authors": ["Unknown Author"],
-                "year": None,
-                "source": source,
-                "abstract": documents[0].page_content[:200] + "..." if documents else "",
-                "journal": "",
-                "keywords": []
-            }
+            Return ONLY a Python dictionary with these exact keys:
+            {{
+                "title": "Full paper title",
+                "authors": ["Author 1", "Author 2"],
+                "year": 2024,
+                "journal": "Journal name or conference",
+                "abstract": "Paper abstract",
+                "doi": "DOI if found",
+                "keywords": ["keyword1", "keyword2"],
+                "research_field": "Primary research area",
+                "methodology": "Research methodology used"
+            }}
+
+            If information is not found, use appropriate defaults (empty strings/lists, null for year).
+            """
+
+            response = self.model.invoke([{"role": "user", "content": metadata_prompt}])
+            metadata = eval(response.content)
+
+            # Validate and clean
+            metadata["source"] = documents[0].metadata.get('source', '') if documents else ''
+            metadata.setdefault("title", f"Academic Paper - {Path(metadata['source']).stem}")
+            metadata.setdefault("authors", ["Unknown Author"])
+            metadata.setdefault("keywords", [])
+
+            return metadata
 
         except Exception as e:
-            logger.error(f"Error extracting metadata: {e}")
-            return {
-                "title": "Error Extracting Title",
-                "authors": ["Unknown"],
-                "year": None,
-                "source": "",
-                "abstract": "",
-                "journal": "",
-                "keywords": []
-            }
+            logger.error(f"Metadata extraction failed: {e}")
+            return self._fallback_metadata(documents)
 
-    def create_embeddings(self, documents):
-        """Create embeddings for ChromaDB"""
+    def _fallback_metadata(self, documents):
+        """Fallback metadata when LLM extraction fails"""
+        source = ""
+        if documents and hasattr(documents[0], 'metadata'):
+            source = documents[0].metadata.get('source', '')
+
+        return {
+            "title": f"Academic Paper - {Path(source).stem}" if source else "Unknown Paper",
+            "authors": ["Unknown Author"],
+            "year": None,
+            "source": source,
+            "abstract": documents[0].page_content[:200] + "..." if documents else "",
+            "journal": "",
+            "keywords": [],
+            "research_field": "Unknown",
+            "methodology": "Unknown"
+        }
+
+    def extract_topics(self, documents, metadata):
+        """Extract topics for MongoDB storage"""
         try:
-            chunks = self.text_splitter.split_documents(documents)
-            chunk_texts = [chunk.page_content for chunk in chunks]
+            text = "\n".join([doc.page_content for doc in documents[:10]])  # First 10 pages
 
-            if not chunk_texts:
-                logger.warning("No text chunks created for embedding")
-                return {"chunks": [], "embeddings": [], "metadata": []}
+            topic_prompt = f"""
+            Analyze this academic paper and extract 3-5 main topics/themes.
+            For each topic, provide:
+            1. A category name
+            2. 3-5 key terms/phrases
 
-            # Create embeddings
-            embedding_vectors = self.embeddings.embed_documents(chunk_texts)
+            Paper title: {metadata.get('title', 'Unknown')}
 
-            logger.info(f"Created {len(embedding_vectors)} embeddings for {len(chunks)} chunks")
+            Text: {text[:3000]}...
 
-            return {
-                "chunks": chunks,
-                "embeddings": embedding_vectors,
-                "metadata": [chunk.metadata for chunk in chunks]
-            }
-        except Exception as e:
-            logger.error(f"Error creating embeddings: {e}")
-            return {"chunks": [], "embeddings": [], "metadata": []}
+            Return as JSON:
+            {{
+                "topics": [
+                    {{
+                        "category": "Topic Name",
+                        "terms": ["term1", "term2", "term3"]
+                    }}
+                ]
+            }}
+            """
 
-    def store_in_vectordb(self, embedding_data, paper_id, metadata):
-        """Store embeddings in ChromaDB - FIXED"""
-        if self.vector_collection is None:
-            logger.error("ChromaDB collection not available")
-            return False
-
-        try:
-            chunks = embedding_data["chunks"]
-            embeddings = embedding_data["embeddings"]
-
-            if not chunks or not embeddings:
-                logger.warning("No chunks or embeddings to store")
-                return False
-
-            # Create unique IDs for chunks
-            ids = [f"{paper_id}-chunk-{i}" for i in range(len(chunks))]
-
-            # Create metadata for each chunk
-            metadatas = []
-            documents = []
-
-            for i, chunk in enumerate(chunks):
-                chunk_metadata = {
-                    "paper_id": paper_id,
-                    "page": chunk.metadata.get("page", 0),
-                    "source": chunk.metadata.get("source", ""),
-                    "chunk_id": i,
-                    "title": metadata.get("title", "Unknown"),
-                    "authors": str(metadata.get("authors", [])),  # Convert to string for ChromaDB
-                    "year": metadata.get("year", "Unknown")
-                }
-                metadatas.append(chunk_metadata)
-                documents.append(chunk.page_content)
-
-            # Store in ChromaDB
-            self.vector_collection.upsert(
-                ids=ids,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                documents=documents
-            )
-
-            logger.info(f"✅ Stored {len(ids)} chunks in ChromaDB")
-            return True
+            response = self.model.invoke([{"role": "user", "content": topic_prompt}])
+            topics_data = eval(response.content)
+            return topics_data.get('topics', [])
 
         except Exception as e:
-            logger.error(f"❌ Failed to store in ChromaDB: {e}")
-            return False
+            logger.error(f"Topic extraction failed: {e}")
+            return []
 
     def extract_entities(self, documents):
-        """Extract entities for Neo4j with better error handling"""
+        """Extract entities for graph relationships"""
         try:
-            # Use first 5 pages for entity extraction
-            text = "\n\n".join([doc.page_content for doc in documents[:5]])
+            text = "\n\n".join([doc.page_content for doc in documents[:8]])
 
-            formatted_messages = ENTITY_EXTRACTION_PROMPT.format_messages(text=text)
-            response = self.model.invoke(formatted_messages)
+            entity_prompt = f"""
+            Extract entities and relationships from this academic paper for knowledge graph construction.
 
-            try:
-                entities = eval(response.content)
-                if not isinstance(entities, dict):
-                    raise ValueError("Invalid entity structure")
+            Text: {text[:5000]}
 
-                # Ensure required keys exist
-                entities.setdefault("concepts", [])
-                entities.setdefault("relationships", [])
+            Return ONLY a Python dictionary:
+            {{
+                "concepts": [
+                    {{
+                        "name": "Concept Name",
+                        "category": "Technology|Method|Theory|Dataset|Metric",
+                        "description": "Brief description"
+                    }}
+                ],
+                "relationships": [
+                    {{
+                        "from": "Concept A",
+                        "to": "Concept B", 
+                        "type": "uses|improves|evaluates|implements|compares",
+                        "description": "Relationship description"
+                    }}
+                ]
+            }}
 
-                logger.info(
-                    f"Extracted {len(entities.get('concepts', []))} concepts and {len(entities.get('relationships', []))} relationships")
-                return entities
+            Focus on:
+            - Technical concepts, methods, algorithms
+            - Research methodologies and datasets
+            - Performance metrics and evaluation methods
+            - Clear, specific relationships between concepts
+            """
 
-            except:
-                # Fallback: extract simple entities
-                logger.warning("LLM entity extraction failed, using fallback")
-                return self._extract_fallback_entities(text)
+            response = self.model.invoke([{"role": "user", "content": entity_prompt}])
+            entities = eval(response.content)
+
+            # Validate structure
+            entities.setdefault("concepts", [])
+            entities.setdefault("relationships", [])
+
+            # Filter out generic/poor quality entities
+            filtered_concepts = []
+            for concept in entities["concepts"]:
+                name = concept.get("name", "").strip()
+                if len(name) > 2 and name not in ["Paper", "Study", "Research", "Method"]:
+                    filtered_concepts.append(concept)
+
+            entities["concepts"] = filtered_concepts[:15]  # Limit for quality
+            entities["relationships"] = entities["relationships"][:20]
+
+            return entities
 
         except Exception as e:
-            logger.error(f"Error extracting entities: {e}")
-            return {"concepts": [], "relationships": []}
+            logger.error(f"Entity extraction failed: {e}")
+            return self._extract_fallback_entities(text[:1000] if 'text' in locals() else "")
 
     def _extract_fallback_entities(self, text):
         """Simple fallback entity extraction"""
@@ -275,8 +278,82 @@ class FixedPdfIngestionPipeline:
             "relationships": []  # No relationships in fallback
         }
 
+    def create_embeddings(self, documents):
+        """Create embeddings for ChromaDB"""
+        try:
+            chunks = self.text_splitter.split_documents(documents)
+            chunk_texts = [chunk.page_content for chunk in chunks]
+
+            if not chunk_texts:
+                logger.warning("No text chunks created for embedding")
+                return {"chunks": [], "embeddings": [], "metadata": []}
+
+            # Create embeddings
+            embedding_vectors = self.embeddings.embed_documents(chunk_texts)
+
+            logger.info(f"Created {len(embedding_vectors)} embeddings for {len(chunks)} chunks")
+
+            return {
+                "chunks": chunks,
+                "embeddings": embedding_vectors,
+                "metadata": [chunk.metadata for chunk in chunks]
+            }
+        except Exception as e:
+            logger.error(f"Error creating embeddings: {e}")
+            return {"chunks": [], "embeddings": [], "metadata": []}
+
+    def store_in_vectordb(self, embedding_data, paper_id, metadata):
+        """Store embeddings in ChromaDB"""
+        if self.vector_collection is None:
+            logger.error("ChromaDB collection not available")
+            return False
+
+        try:
+            chunks = embedding_data["chunks"]
+            embeddings = embedding_data["embeddings"]
+
+            if not chunks or not embeddings:
+                logger.warning("No chunks or embeddings to store")
+                return False
+
+            # Create unique IDs for chunks
+            ids = [f"{paper_id}-chunk-{i}" for i in range(len(chunks))]
+
+            # Create metadata for each chunk
+            metadatas = []
+            documents = []
+
+            for i, chunk in enumerate(chunks):
+                chunk_metadata = {
+                    "paper_id": paper_id,
+                    "page": chunk.metadata.get("page", 0),
+                    "source": chunk.metadata.get("source", ""),
+                    "chunk_id": i,
+                    "title": metadata.get("title", "Unknown"),
+                    "authors": str(metadata.get("authors", [])),  # Convert to string for ChromaDB
+                    "year": metadata.get("year", "Unknown"),
+                    "research_field": metadata.get("research_field", "Unknown")
+                }
+                metadatas.append(chunk_metadata)
+                documents.append(chunk.page_content)
+
+            # Store in ChromaDB
+            self.vector_collection.upsert(
+                ids=ids,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                documents=documents
+            )
+
+            logger.info(f"✅ Stored {len(ids)} chunks in ChromaDB")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to store in ChromaDB: {e}")
+            return False
+
     def store_in_graphdb(self, entities, paper_id, metadata):
-        """Store in Neo4j - FIXED with better error handling"""
+        """Store in Neo4j with better error handling"""
         if self.graph_db is None:
             logger.error("Neo4j connection not available")
             return False
@@ -288,13 +365,16 @@ class FixedPdfIngestionPipeline:
                     "id": paper_id,
                     "title": metadata.get("title", "Unknown"),
                     "year": metadata.get("year"),
-                    "source": metadata.get("source", "")
+                    "source": metadata.get("source", ""),
+                    "research_field": metadata.get("research_field", "Unknown"),
+                    "methodology": metadata.get("methodology", "Unknown")
                 }
 
                 session.run(
                     """
                     MERGE (p:Paper {id: $id})
-                    SET p.title = $title, p.year = $year, p.source = $source
+                    SET p.title = $title, p.year = $year, p.source = $source,
+                        p.research_field = $research_field, p.methodology = $methodology
                     """,
                     **paper_props
                 )
@@ -362,7 +442,7 @@ class FixedPdfIngestionPipeline:
             return False
 
     def store_in_mongodb(self, documents, metadata, entities, paper_id):
-        """Store in MongoDB - FIXED"""
+        """Store in MongoDB"""
         if self.mongo_db is None:
             logger.error("MongoDB connection not available")
             return False
@@ -397,8 +477,38 @@ class FixedPdfIngestionPipeline:
             logger.error(f"❌ Failed to store in MongoDB: {e}")
             return False
 
+    def store_topics_in_mongodb(self, topics, paper_id, metadata):
+        """Store topic data in MongoDB topics collection"""
+        if not topics or not self.mongo_db:
+            return False
+
+        try:
+            topics_collection = self.mongo_db.topics
+
+            for topic in topics:
+                topic_doc = {
+                    "paper_id": paper_id,
+                    "category": topic.get("category", "Unknown"),
+                    "terms": [{"term": term, "weight": 1.0} for term in topic.get("terms", [])],
+                    "source": metadata.get("source", ""),
+                    "created_at": pd.Timestamp.now().isoformat()
+                }
+
+                topics_collection.replace_one(
+                    {"paper_id": paper_id, "category": topic["category"]},
+                    topic_doc,
+                    upsert=True
+                )
+
+            logger.info(f"✅ Stored {len(topics)} topics in MongoDB")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to store topics: {e}")
+            return False
+
     def process_pdf(self, pdf_path):
-        """Process a single PDF with improved error handling"""
+        """Process a single PDF with topic modeling"""
         logger.info(f"🔄 Processing PDF: {pdf_path.name}")
 
         try:
@@ -423,8 +533,12 @@ class FixedPdfIngestionPipeline:
             metadata = self.extract_metadata(documents)
             logger.info(f"Extracted metadata: {metadata.get('title', 'Unknown')[:50]}...")
 
-            # Track success for each database
-            results = {"vector": False, "graph": False, "mongo": False}
+            # Extract entities and topics
+            entities = self.extract_entities(documents)
+            topics = self.extract_topics(documents, metadata)
+
+            # Track success for each database operation
+            results = {"vector": False, "graph": False, "mongo": False, "topics": False}
 
             # Store in ChromaDB
             if self.vector_collection is not None:
@@ -433,32 +547,56 @@ class FixedPdfIngestionPipeline:
 
             # Store in Neo4j
             if self.graph_db is not None:
-                entities = self.extract_entities(documents)
                 results["graph"] = self.store_in_graphdb(entities, paper_id, metadata)
-            else:
-                entities = {"concepts": [], "relationships": []}
 
             # Store in MongoDB
             if self.mongo_db is not None:
                 results["mongo"] = self.store_in_mongodb(documents, metadata, entities, paper_id)
+                results["topics"] = self.store_topics_in_mongodb(topics, paper_id, metadata)
 
             # Report results
             success_count = sum(results.values())
-            total_dbs = sum(1 for db in [self.vector_collection, self.graph_db, self.mongo_db] if db is not None)
+            total_ops = len(results)
 
-            if success_count == total_dbs:
-                logger.info(f"✅ Successfully stored {pdf_path.name} in all {total_dbs} databases")
-                return True
-            elif success_count > 0:
-                logger.warning(f"⚠️ Partially stored {pdf_path.name}: {results}")
+            if success_count >= total_ops * 0.75:  # 75% success rate
+                logger.info(f"✅ Successfully processed {pdf_path.name} ({success_count}/{total_ops} operations)")
                 return True
             else:
-                logger.error(f"❌ Failed to store {pdf_path.name} in any database")
+                logger.warning(f"⚠️ Partial processing of {pdf_path.name}: {results}")
                 return False
 
         except Exception as e:
             logger.error(f"❌ Error processing {pdf_path}: {e}", exc_info=True)
             return False
+
+    def test_ingestion_quality(self):
+        """Test if ingestion created the expected data structure"""
+        logger.info("🧪 Testing ingestion quality...")
+
+        results = {}
+
+        # Test MongoDB collections
+        if self.mongo_db:
+            papers_count = self.mongo_db.papers.count_documents({})
+            topics_count = self.mongo_db.topics.count_documents({})
+            results["mongodb"] = {"papers": papers_count, "topics": topics_count}
+            logger.info(f"   MongoDB: {papers_count} papers, {topics_count} topics")
+
+        # Test Neo4j
+        if self.graph_db:
+            with self.graph_db.session() as session:
+                nodes = session.run("MATCH (n) RETURN count(n) as count").single()["count"]
+                rels = session.run("MATCH ()-[r]->() RETURN count(r) as count").single()["count"]
+                results["neo4j"] = {"nodes": nodes, "relationships": rels}
+                logger.info(f"   Neo4j: {nodes} nodes, {rels} relationships")
+
+        # Test ChromaDB
+        if self.vector_collection:
+            vectors = self.vector_collection.count()
+            results["chromadb"] = {"vectors": vectors}
+            logger.info(f"   ChromaDB: {vectors} vectors")
+
+        return results
 
     def close_connections(self):
         """Close database connections"""
@@ -489,7 +627,7 @@ def quick_test_ingestion():
 
     # Test with first paper
     print(f"\n🔄 Testing ingestion with: {pdf_files[0].name}")
-    pipeline = FixedPdfIngestionPipeline()
+    pipeline = PdfIngestionPipeline()
 
     try:
         success = pipeline.process_pdf(pdf_files[0])
@@ -497,25 +635,15 @@ def quick_test_ingestion():
         if success:
             print(f"✅ Successfully processed {pdf_files[0].name}")
 
-            # Verify in all databases
-            print("\n🔍 Verification:")
+            # Test ingestion quality
+            results = pipeline.test_ingestion_quality()
 
-            # Check MongoDB
-            if pipeline.mongo_db:
-                count = pipeline.mongo_db.papers.count_documents({})
-                print(f"   📊 MongoDB: {count} papers")
-
-            # Check Neo4j
-            if pipeline.graph_db:
-                with pipeline.graph_db.session() as session:
-                    result = session.run("MATCH (p:Paper) RETURN count(p) as count")
-                    count = result.single()["count"]
-                    print(f"   🔗 Neo4j: {count} papers")
-
-            # Check ChromaDB
-            if pipeline.vector_collection:
-                count = pipeline.vector_collection.count()
-                print(f"   🔍 ChromaDB: {count} vectors")
+            # Verify data structure
+            print("\n🔍 Data Structure Verification:")
+            for db_name, stats in results.items():
+                print(f"   📊 {db_name.upper()}:")
+                for key, value in stats.items():
+                    print(f"      {key}: {value}")
 
             return True
         else:
@@ -536,7 +664,7 @@ def ingest_all_pdfs(source_dir="sources"):
         logger.error(f"Source directory {source_dir} does not exist")
         return
 
-    pipeline = FixedPdfIngestionPipeline()
+    pipeline = PdfIngestionPipeline()
     try:
         pdf_files = list(source_path.glob('*.pdf'))
         logger.info(f"Found {len(pdf_files)} PDF files")
@@ -551,6 +679,12 @@ def ingest_all_pdfs(source_dir="sources"):
                 successful += 1
 
         logger.info(f"Successfully processed {successful}/{len(pdf_files)} PDFs")
+
+        # Final quality test
+        results = pipeline.test_ingestion_quality()
+        logger.info("🎯 Final ingestion summary:")
+        for db_name, stats in results.items():
+            logger.info(f"   {db_name}: {stats}")
 
     except Exception as e:
         logger.error(f"Error in ingestion process: {e}")
@@ -568,7 +702,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.test:
-        print("🧪 Running quick ingestion test...")
+        print("🧪 Running ingestion test...")
         success = quick_test_ingestion()
         if success:
             print("\n🎉 Test successful! All databases populated.")

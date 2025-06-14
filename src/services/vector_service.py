@@ -13,10 +13,11 @@ def query_vectordb(query: str, limit: int = 5) -> List[Dict[str, Any]]:
         client = chroma_config.get_client()
 
         try:
-            collection = client.get_collection(name="research_papers")
+            # Use consistent collection name
+            collection = client.get_collection(name="academic_papers")
         except Exception:
-            logger.info("Collection 'research_papers' not found. Creating new collection.")
-            collection = client.create_collection(name="research_papers")
+            logger.info("Collection 'academic_papers' not found. Creating new collection.")
+            collection = client.create_collection(name="academic_papers")
 
         results = collection.query(
             query_texts=[query],
