@@ -465,12 +465,48 @@ def logs(ctx, service, lines, follow):
 @cli.command()
 @click.option('--query', '-q', default='machine learning', help='Test query to send')
 @click.option('--endpoint', default='agent', help='API endpoint to test')
-@click.option('--timeout', default=30, help='Request timeout in seconds')
-@click.option('--detailed', '-d', is_flag=True, help='Show detailed response breakdown')
+@click.option('--timeout', default=60, help='Request timeout in seconds')
+@click.option('--simple', '-s', is_flag=True, help='Show simple, clean output')
 @click.pass_context
-def test(ctx, query, endpoint, timeout, detailed):
+def test(ctx, query, endpoint, timeout, simple):
     """🧪 Test system functionality"""
 
+    if simple:
+        # Simple, clean output mode
+        echo_step("🧪", f"Testing: '{query}'")
+
+        try:
+            url = f"http://localhost:8000/api/v1/{endpoint}"
+            response = requests.post(url, json={"query": query}, timeout=timeout)
+
+            if response.status_code == 200:
+                result = response.json()
+                message = result.get('message', '')
+                system_health = result.get('system_health', {})
+
+                # Clean output
+                print(f"\n{'=' * 60}")
+                print(f"📋 QUERY: {query}")
+                print(f"{'=' * 60}")
+                print(f"{message}")
+                print(f"\n{'=' * 60}")
+                print(f"🔧 SYSTEM STATUS:")
+                for key, value in system_health.items():
+                    clean_key = key.replace('_', ' ').title()
+                    print(f"   {clean_key}: {value}")
+                print(f"{'=' * 60}")
+
+            else:
+                echo_error(f"Request failed: {response.status_code}")
+
+        except requests.exceptions.Timeout:
+            echo_error(f"Request timed out after {timeout}s")
+        except Exception as e:
+            echo_error(f"Error: {e}")
+
+        return
+
+    # Original detailed output mode
     echo_step("🧪", f"Testing {endpoint} endpoint with query: '{query}'")
 
     try:
@@ -492,106 +528,41 @@ def test(ctx, query, endpoint, timeout, detailed):
                 result = response.json()
 
                 if endpoint == 'agent':
-                    # Extract and format the response properly
                     message = result.get('message', '')
-                    agents_used = result.get('agents_used', {})
-                    debug_info = result.get('debug', {})
+                    system_health = result.get('system_health', {})
 
                     # Clean metrics display
                     click.echo(f"\n📊 {click.style('Test Results:', fg='cyan', bold=True)}")
                     click.echo(f"   Query: {click.style(query, fg='white', bold=True)}")
                     click.echo(f"   Response Length: {click.style(f'{len(message):,} characters', fg='green')}")
-                    click.echo(f"   Processing Time: {click.style(f'{timeout}s max', fg='blue')}")
+                    click.echo(f"   Processing Time: {click.style(f'{timeout}s timeout', fg='blue')}")
 
-                    # Agent usage metrics
-                    click.echo(f"\n🤖 {click.style('Agent Analysis:', fg='cyan', bold=True)}")
+                    # System health
+                    click.echo(f"\n🔧 {click.style('System Health:', fg='cyan', bold=True)}")
+                    for key, value in system_health.items():
+                        clean_key = key.replace('_', ' ').title()
+                        # Color code based on status
+                        if '✅' in value:
+                            color = 'green'
+                        elif '🟡' in value:
+                            color = 'yellow'
+                        elif '❌' in value:
+                            color = 'red'
+                        else:
+                            color = 'white'
 
-                    active_agents = []
-                    for agent, used in agents_used.items():
-                        status = "✅ Active" if used else "❌ Inactive"
-                        color = 'green' if used else 'red'
-                        agent_name = agent.replace('_', ' ').title()
-                        click.echo(f"   {agent_name}: {click.style(status, fg=color)}")
-                        if used:
-                            active_agents.append(agent_name)
+                        click.echo(f"   {clean_key}: {click.style(value, fg=color)}")
 
-                    # Database usage detection
-                    click.echo(f"\n💾 {click.style('Database Usage Analysis:', fg='cyan', bold=True)}")
+                    # Show response preview
+                    click.echo(f"\n📄 {click.style('Response Preview:', fg='cyan', bold=True)}")
 
-                    # Check for database indicators in the response
-                    message_lower = message.lower()
-                    database_indicators = {
-                        'Neo4j': ['neo4j', 'concepts found', 'relationships found', 'graph analysis',
-                                  'knowledge graph'],
-                        'MongoDB': ['mongodb', 'topics found', 'papers found', 'topic analysis', 'categories'],
-                        'ChromaDB': ['chromadb', 'vectors', 'semantic search', 'relevance', 'similarity']
-                    }
-
-                    databases_used = []
-                    for db_name, indicators in database_indicators.items():
-                        db_used = any(indicator in message_lower for indicator in indicators)
-                        status = "✅ Data Found" if db_used else "📭 No Data"
-                        color = 'green' if db_used else 'yellow'
-                        click.echo(f"   {db_name}: {click.style(status, fg=color)}")
-                        if db_used:
-                            databases_used.append(db_name)
-
-                    # Overall system health
-                    click.echo(f"\n🎯 {click.style('System Health:', fg='cyan', bold=True)}")
-
-                    agents_working = len(active_agents)
-                    databases_working = len(databases_used)
-
-                    if agents_working >= 2 and databases_working >= 2:
-                        health_status = "🟢 Excellent"
-                        health_color = 'green'
-                    elif agents_working >= 1 and databases_working >= 1:
-                        health_status = "🟡 Good"
-                        health_color = 'yellow'
-                    else:
-                        health_status = "🔴 Issues Detected"
-                        health_color = 'red'
-
-                    click.echo(f"   Overall Status: {click.style(health_status, fg=health_color, bold=True)}")
-                    click.echo(f"   Active Agents: {click.style(f'{agents_working}/3', fg='blue')}")
-                    click.echo(f"   Databases Used: {click.style(f'{databases_working}/3', fg='blue')}")
-
-                    # Show response preview/details based on flag
-                    if detailed:
-                        click.echo(f"\n📄 {click.style('Detailed Response:', fg='cyan', bold=True)}")
-
-                        # Try to extract clean sections from the response
-                        sections = []
-                        if "## 🔗" in message:
-                            sections.append("Graph Analysis")
-                        if "## 📊" in message:
-                            sections.append("Topic Analysis")
-                        if "## ✨" in message:
-                            sections.append("Synthesis")
-
-                        if sections:
-                            click.echo(f"   Sections: {', '.join(sections)}")
-
-                        # Show first 300 chars of actual content
-                        preview = message[:300].replace('\n', ' ').strip()
-                        if len(message) > 300:
-                            preview += "..."
-                        click.echo(f"   Preview: {preview}")
-                    else:
-                        click.echo(
-                            f"\n💡 {click.style('Tip:', fg='blue')} Use --detailed flag to see full response content")
-
-                    # Recommendations
-                    if databases_working == 0:
-                        click.echo(f"\n⚠️ {click.style('Recommendation:', fg='yellow', bold=True)}")
-                        click.echo("   No database data detected. Run ingestion:")
-                        click.echo("   python src/utils/ingestion_pipeline.py --test")
-                    elif databases_working < 3:
-                        click.echo(f"\n💡 {click.style('Note:', fg='blue', bold=True)}")
-                        click.echo("   Some databases may be empty. Check ingestion logs.")
+                    # Show first 300 chars of clean message
+                    preview = message[:300].replace('\n', ' ').strip()
+                    if len(message) > 300:
+                        preview += "..."
+                    click.echo(f"   {preview}")
 
                 else:
-                    # Non-agent endpoints
                     click.echo(f"\n📄 Response: {json.dumps(result, indent=2)}")
 
             except json.JSONDecodeError:

@@ -1,4 +1,4 @@
-# Update your src/api/v1/endpoints/agent.py
+# src/api/v1/endpoints/agent.py - CLEANED UP VERSION
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -12,124 +12,204 @@ class QueryRequest(BaseModel):
     query: str
 
 
-def extract_clean_output(raw_output: str) -> str:
-    """Extract clean, readable content from raw agent output"""
+def extract_clean_content(raw_output: str) -> str:
+    """Extract clean, readable content from agent output - IMPROVED"""
     if not raw_output:
-        return "No output available"
+        return "No response available"
 
-    # Convert to string if it's not already
-    output_str = str(raw_output)
+    content = str(raw_output)
 
-    # If it contains LangGraph messages, extract the actual content
-    if "AIMessage(content=" in output_str:
-        # Find the last AIMessage content
-        pattern = r"AIMessage\(content='([^']*(?:\\.[^']*)*)', additional_kwargs"
-        matches = re.findall(pattern, output_str, re.DOTALL)
+    # Look for tool call results (the actual database responses)
+    if "tool_call_id" in content and "## 🔗" in content:
+        # Extract graph analysis
+        start = content.find("## 🔗")
+        end = content.find("', name='enhanced_graph_tool")
+        if start != -1 and end != -1:
+            extracted = content[start:end]
+            # Clean up escape characters
+            extracted = extracted.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+            return extracted.strip()
+
+    if "tool_call_id" in content and "## 📊" in content:
+        # Extract topic analysis
+        start = content.find("## 📊")
+        end = content.find("', name='topic_tool")
+        if start != -1 and end != -1:
+            extracted = content[start:end]
+            # Clean up escape characters
+            extracted = extracted.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+            return extracted.strip()
+
+    # Look for AIMessage content
+    if "AIMessage(content=" in content:
+        # Find the content within AIMessage
+        pattern = r"AIMessage\(content=['\"]([^'\"]*(?:\\.[^'\"]*)*)['\"]"
+        import re
+        matches = re.findall(pattern, content, re.DOTALL)
         if matches:
-            content = matches[-1]
-            # Clean up escaped characters
-            content = content.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-            return content
+            clean_content = matches[-1]  # Get last match
+            clean_content = clean_content.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+            if len(clean_content) > 50:
+                return clean_content.strip()
 
-    # If it contains 'messages': [HumanMessage... extract differently
-    if "'messages':" in output_str and "HumanMessage" in output_str:
-        # Try to find content after analysis sections
-        if "## 🔗" in output_str:
-            start_idx = output_str.find("## 🔗")
-            if start_idx != -1:
-                # Extract from graph analysis onwards
-                content = output_str[start_idx:start_idx + 1000]  # Get reasonable chunk
-                # Clean up any remaining message artifacts
-                content = re.sub(r"'messages':\s*\[.*?\]", "", content)
-                content = re.sub(r"HumanMessage\([^)]+\)", "", content)
-                content = re.sub(r"additional_kwargs=\{[^}]*\}", "", content)
-                content = re.sub(r"response_metadata=\{[^}]*\}", "", content)
-                content = re.sub(r"id=[a-f0-9-]+", "", content)
-                return content.strip()
+    # Look for markdown headers
+    if "## " in content:
+        lines = content.split('\n')
+        meaningful_lines = []
+        in_meaningful_section = False
 
-    # If it's already clean content, return as is
-    if any(output_str.strip().startswith(marker) for marker in ["##", "**", "- ", "🔗", "📊", "✨"]):
-        return output_str.strip()
+        for line in lines:
+            if line.strip().startswith("## "):
+                in_meaningful_section = True
+                meaningful_lines.append(line.strip())
+            elif in_meaningful_section and line.strip():
+                if not any(skip in line for skip in ['tool_call_id', 'AIMessage', 'HumanMessage']):
+                    meaningful_lines.append(line.strip())
+            elif in_meaningful_section and not line.strip():
+                meaningful_lines.append("")  # Keep paragraph breaks
 
-    # Last resort: try to extract meaningful content
-    lines = output_str.split('\n')
+        if meaningful_lines:
+            return '\n'.join(meaningful_lines).strip()
+
+    # Fallback: Look for any meaningful content
+    sentences = content.split('.')
+    clean_sentences = []
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if (len(sentence) > 20 and
+                not any(skip in sentence.lower() for skip in [
+                    'tool_call_id', 'aimessage', 'humanmessage', 'additional_kwargs'
+                ])):
+            clean_sentences.append(sentence)
+        if len(clean_sentences) >= 2:
+            break
+
+    if clean_sentences:
+        return '. '.join(clean_sentences) + '.'
+
+    return "Unable to extract meaningful content"
+
+
+def clean_duplicate_content(text: str) -> str:
+    """Remove duplicate sections from text"""
+    lines = text.split('\n')
+    seen_lines = set()
     clean_lines = []
+
     for line in lines:
-        # Skip lines with message artifacts
-        if not any(artifact in line for artifact in
-                   ['HumanMessage', 'additional_kwargs', 'response_metadata', "'messages':"]):
+        line = line.strip()
+        # Skip empty lines and duplicates
+        if line and line not in seen_lines:
+            seen_lines.add(line)
             clean_lines.append(line)
 
-    result = '\n'.join(clean_lines).strip()
-    return result if result else "Unable to extract clean content from agent response"
+    return '\n'.join(clean_lines)
 
 
 @router.post("/agent")
 def process_query(request: QueryRequest):
     """
-    API endpoint to process a user query using the supervisor agent.
-    Returns clean, formatted output with better response extraction.
+    Process query and return clean, readable output
     """
     try:
         # Run the supervisor workflow
         response = run_supervisor(request.query)
 
-        # Extract clean outputs
+        # Extract outputs
         graph_output = response.get("graph_output", "")
         tm_output = response.get("tm_output", "")
         final_output = response.get("final_output", "")
 
-        # Clean the outputs using improved extraction
-        clean_graph = extract_clean_output(str(graph_output))
-        clean_topic = extract_clean_output(str(tm_output))
-        clean_final = extract_clean_output(str(final_output))
+        # Clean each output
+        clean_graph = extract_clean_content(graph_output)
+        clean_topic = extract_clean_content(tm_output)
+        clean_final = extract_clean_content(final_output)
 
-        # Check if we got actual database content vs generic responses
-        def has_database_content(content):
-            db_indicators = [
-                'database', 'neo4j', 'mongodb', 'chromadb',
-                'concepts found', 'relationships found', 'topics found',
-                'papers found', 'retrieved', 'vectors', 'nodes'
+        # Check for database usage
+        def has_real_data(content):
+            indicators = [
+                'database', 'retrieved', 'found', 'neo4j', 'mongodb',
+                'concepts found', 'papers found', 'topics found'
             ]
-            return any(indicator.lower() in content.lower() for indicator in db_indicators)
+            return any(indicator.lower() in content.lower() for indicator in indicators)
 
-        # Create formatted response with better structure
-        formatted_message = f"""# 🎯 Multi-Agent Research Analysis
+        graph_has_data = has_real_data(clean_graph)
+        topic_has_data = has_real_data(clean_topic)
 
-**Query:** {request.query}
+        # Create clean, formatted response
+        if graph_has_data and topic_has_data:
+            # Both agents working with data
+            formatted_message = f"""**🎯 Research Analysis Results**
 
----
+*Query:* {request.query}
 
-## 🔗 Knowledge Graph Analysis
+**📊 Knowledge Graph Findings:**
 {clean_graph}
 
----
-
-## 📊 Topic Modeling Analysis  
+**🏷️ Topic Analysis:**
 {clean_topic}
 
----
-
-## ✨ Synthesized Insights
+**💡 Key Insights:**
 {clean_final}
 
----
+*System Status: ✅ All agents active with database content*"""
 
-**Analysis Quality:** {'✅ Database-Driven' if any(has_database_content(content) for content in [clean_graph, clean_topic, clean_final]) else '⚠️ Generic Response'}"""
+        elif graph_has_data:
+            # Only graph agent working
+            formatted_message = f"""**🎯 Research Analysis Results**
+
+*Query:* {request.query}
+
+**📊 Knowledge Graph Analysis:**
+{clean_graph}
+
+**⚠️ Topic Analysis:** Limited data available
+
+**💡 Summary:**
+{clean_final}
+
+*System Status: 🟡 Graph data available, topics need attention*"""
+
+        elif topic_has_data:
+            # Only topic agent working
+            formatted_message = f"""**🎯 Research Analysis Results**
+
+*Query:* {request.query}
+
+**🏷️ Topic Analysis:**
+{clean_topic}
+
+**⚠️ Graph Analysis:** Limited data available
+
+**💡 Summary:**
+{clean_final}
+
+*System Status: 🟡 Topic data available, graph needs attention*"""
+
+        else:
+            # Generic response mode
+            formatted_message = f"""**🎯 Research Response**
+
+*Query:* {request.query}
+
+**Response:**
+{clean_final}
+
+*System Status: ⚠️ Using general knowledge (check database ingestion)*"""
+
+        # Remove any duplicate content
+        formatted_message = clean_duplicate_content(formatted_message)
 
         return {
             "status": "success",
             "message": formatted_message,
             "query": request.query,
-            "agents_used": {
-                "graph_writer": bool(clean_graph and clean_graph != "No output available" and len(clean_graph) > 50),
-                "topic_model": bool(clean_topic and clean_topic != "No output available" and len(clean_topic) > 50),
-                "supervisor": True
-            },
-            "database_indicators": {
-                "graph_has_db_content": has_database_content(clean_graph),
-                "topic_has_db_content": has_database_content(clean_topic),
-                "final_has_db_content": has_database_content(clean_final)
+            "system_health": {
+                "graph_agent": "✅ Active" if clean_graph != "No response available" else "❌ Inactive",
+                "topic_agent": "✅ Active" if clean_topic != "No response available" else "❌ Inactive",
+                "database_usage": "✅ High" if (graph_has_data and topic_has_data) else "🟡 Partial" if (
+                            graph_has_data or topic_has_data) else "❌ Low",
+                "response_quality": "Database-driven" if (graph_has_data or topic_has_data) else "General knowledge"
             }
         }
 
