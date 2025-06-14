@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from src.domain.agents.supervisor import run_supervisor
+from src.domain.agents.research_coordinator import run_supervisor
 import re
 
 router = APIRouter()
