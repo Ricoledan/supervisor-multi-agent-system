@@ -40,7 +40,7 @@ class EnhancedResponseFormatter:
         return "Unable to extract clean content from agent output"
 
     @staticmethod
-    def format_response(agent_responses: Dict[str, Any], query: str) -> Dict[str, str]:
+    def format_response(agent_responses: Dict[str, Any], query: str) -> Dict[str, Any]:
         """Format multiple agent responses into a structured output"""
 
         graph_output = agent_responses.get("graph_output", "")
@@ -51,6 +51,15 @@ class EnhancedResponseFormatter:
         clean_graph = EnhancedResponseFormatter._extract_clean_content(graph_output)
         clean_topic = EnhancedResponseFormatter._extract_clean_content(tm_output)
         clean_final = EnhancedResponseFormatter._extract_clean_content(final_output)
+
+        # Analyze content for database usage
+        def has_database_indicators(content):
+            db_indicators = [
+                'neo4j', 'mongodb', 'chromadb', 'database',
+                'concepts found', 'topics found', 'papers found',
+                'retrieved', 'analyzed', 'extracted'
+            ]
+            return any(indicator.lower() in content.lower() for indicator in db_indicators)
 
         # Create formatted response
         formatted_message = f"""# 🎯 Multi-Agent Research Analysis
@@ -72,12 +81,39 @@ class EnhancedResponseFormatter:
 
 ---
 
-**Database Status:** Neo4j: {'✅' if 'Neo4j Database' in clean_graph else '❌'} | MongoDB: {'✅' if 'MongoDB Database' in clean_topic else '❌'}
+**Database Status:** Neo4j: {'✅' if has_database_indicators(clean_graph) else '❌'} | MongoDB: {'✅' if has_database_indicators(clean_topic) else '❌'}
 """
+
+        # Create structured data for the supervisor
+        structured_data = {
+            "query": query,
+            "agents": {
+                "graph_writer": {
+                    "output_length": len(clean_graph),
+                    "has_database_content": has_database_indicators(clean_graph),
+                    "status": "success" if clean_graph != "No output available" else "no_output"
+                },
+                "topic_model": {
+                    "output_length": len(clean_topic),
+                    "has_database_content": has_database_indicators(clean_topic),
+                    "status": "success" if clean_topic != "No output available" else "no_output"
+                }
+            },
+            "databases_used": {
+                "neo4j": has_database_indicators(clean_graph),
+                "mongodb": has_database_indicators(clean_topic),
+                "chromadb": False  # Could enhance this detection
+            },
+            "response_quality": "database_driven" if any([
+                has_database_indicators(clean_graph),
+                has_database_indicators(clean_topic)
+            ]) else "generic"
+        }
 
         return {
             "status": "success",
             "message": formatted_message,
+            "structured_data": structured_data,  # Added this key that supervisor expects
             "debug": {
                 "graph_extracted": clean_graph[:100] + "..." if len(clean_graph) > 100 else clean_graph,
                 "topic_extracted": clean_topic[:100] + "..." if len(clean_topic) > 100 else clean_topic

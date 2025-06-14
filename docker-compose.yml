@@ -13,6 +13,7 @@ services:
       - neo4j
       - chromadb
       - mongodb
+      # Removed ingestion dependency - API runs independently
     command: ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]
     networks:
       - app-network
@@ -25,7 +26,7 @@ services:
       - MONGODB_PASSWORD=password
       - MONGODB_DB=research_db
 
-  ingestor:
+  ingestion:
     build:
       context: .
       target: dev
@@ -37,7 +38,14 @@ services:
       - neo4j
       - chromadb
       - mongodb
-    command: ["python", "force_reingest.py"]
+    command: |
+      sh -c "
+        echo '⏳ Waiting for databases to be ready...' &&
+        sleep 45 &&
+        echo '🔄 Starting PDF ingestion...' &&
+        python src/utils/ingestion_pipeline.py &&
+        echo '✅ Ingestion completed!'
+      "
     networks:
       - app-network
     environment:
@@ -48,6 +56,7 @@ services:
       - MONGODB_USER=user
       - MONGODB_PASSWORD=password
       - MONGODB_DB=research_db
+    restart: "no"  # Run once and stop
 
   neo4j:
     image: neo4j:latest

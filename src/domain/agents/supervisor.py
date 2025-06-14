@@ -210,18 +210,29 @@ def synthesize_node(state: AgentState) -> AgentState:
             # Apply enhanced formatting if we have the necessary outputs
             if state.get("graph_output") and state.get("tm_output"):
                 try:
+                    from src.domain.formatters.response_formatter import EnhancedResponseFormatter
+
                     agent_responses = {
                         "graph_output": state.get("graph_output"),
                         "tm_output": state.get("tm_output")
                     }
 
                     formatted_result = EnhancedResponseFormatter.format_response(agent_responses, original_query)
-                    state["final_output"] = formatted_result["message"]
-                    state["structured_data"] = formatted_result["structured_data"]
+
+                    # Safely update state with formatted result
+                    if "message" in formatted_result:
+                        state["final_output"] = formatted_result["message"]
+
+                    # Only set structured_data if it exists in the result
+                    if "structured_data" in formatted_result:
+                        state["structured_data"] = formatted_result["structured_data"]
+
                     logger.info("Successfully applied enhanced formatting to response")
+
                 except Exception as e:
                     logger.error(f"Error applying enhanced formatting: {str(e)}", exc_info=True)
                     # Keep the original response if formatting fails
+                    logger.info("Continuing with basic synthesis response")
 
         except Exception as e:
             logger.error(f"Error synthesizing research response: {str(e)}", exc_info=True)
