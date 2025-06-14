@@ -48,7 +48,7 @@ def topic_tool(input: str) -> str:
                 analysis += f"\n**{category}:**\n"
                 for term in terms[:5]:  # Top 5 terms per category
                     if isinstance(term, dict):
-                        term_name = term.get('name', 'Unknown')
+                        term_name = term.get('term', 'Unknown')
                         term_weight = term.get('weight', 0)
                         analysis += f"- {term_name} (weight: {term_weight:.3f})\n"
                     else:
@@ -100,19 +100,42 @@ _base_agent = create_react_agent(
 
 class WrappedAgent:
     def invoke(self, inputs):
-        response = _base_agent.invoke(inputs)
+        try:
+            # Get the response from the base agent
+            response = _base_agent.invoke(inputs)
 
-        if hasattr(response, 'content'):
-            content = response.content
-        elif isinstance(response, dict) and "output" in response:
-            return response
-        elif isinstance(response, str):
-            content = response
-        else:
-            content = str(response)
+            # Extract clean content from LangGraph response
+            if hasattr(response, 'messages') and response.messages:
+                # Get the last AI message
+                for message in reversed(response.messages):
+                    if hasattr(message, 'content') and message.content:
+                        # Look for actual analysis content, not just tool calls
+                        content = message.content.strip()
+                        if content and len(content) > 50 and ('##' in content or 'Topic Analysis' in content):
+                            return {"output": content}
 
-        return {"output": content}
+                # If no good content found, look at tool responses
+                for message in reversed(response.messages):
+                    if hasattr(message, 'content') and message.content:
+                        content = message.content.strip()
+                        if content and len(content) > 20:
+                            return {"output": content}
+
+            # Fallback: check if response has direct output
+            if hasattr(response, 'content'):
+                return {"output": response.content}
+            elif isinstance(response, dict) and "output" in response:
+                return response
+            elif isinstance(response, str):
+                return {"output": response}
+            else:
+                # Last resort: convert to string
+                return {"output": str(response)}
+
+        except Exception as e:
+            logger.error(f"Error in topic model agent wrapper: {e}")
+            return {"output": f"Error in topic model agent: {str(e)}"}
 
 
-# Make sure this is properly exported
+# Export the fixed agent
 topic_model_agent = WrappedAgent()

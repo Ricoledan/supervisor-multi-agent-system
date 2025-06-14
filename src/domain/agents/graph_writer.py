@@ -110,19 +110,42 @@ _base_agent = create_react_agent(
 
 class WrappedAgent:
     def invoke(self, inputs):
-        response = _base_agent.invoke(inputs)
+        try:
+            # Get the response from the base agent
+            response = _base_agent.invoke(inputs)
 
-        if hasattr(response, 'content'):
-            content = response.content
-        elif isinstance(response, dict) and "output" in response:
-            return response
-        elif isinstance(response, str):
-            content = response
-        else:
-            content = str(response)
+            # Extract clean content from LangGraph response
+            if hasattr(response, 'messages') and response.messages:
+                # Get the last AI message with actual content
+                for message in reversed(response.messages):
+                    if hasattr(message, 'content') and message.content:
+                        content = message.content.strip()
+                        # Look for actual analysis content
+                        if content and len(content) > 50 and ('##' in content or 'Knowledge Graph' in content):
+                            return {"output": content}
 
-        return {"output": content}
+                # If no good content found, look at any non-empty content
+                for message in reversed(response.messages):
+                    if hasattr(message, 'content') and message.content:
+                        content = message.content.strip()
+                        if content and len(content) > 20:
+                            return {"output": content}
+
+            # Fallback: check if response has direct output
+            if hasattr(response, 'content'):
+                return {"output": response.content}
+            elif isinstance(response, dict) and "output" in response:
+                return response
+            elif isinstance(response, str):
+                return {"output": response}
+            else:
+                # Last resort: convert to string
+                return {"output": str(response)}
+
+        except Exception as e:
+            logger.error(f"Error in graph writer agent wrapper: {e}")
+            return {"output": f"Error in graph writer agent: {str(e)}"}
 
 
-# Export the enhanced agent - THIS WAS MISSING!
+# Export the fixed agent
 graph_writer_agent = WrappedAgent()

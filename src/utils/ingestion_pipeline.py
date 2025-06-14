@@ -76,10 +76,15 @@ class PdfIngestionPipeline:
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, filename))
 
     def is_already_processed(self, paper_id, pdf_path):
-        """Check if paper exists in ANY database - skip if found"""
+        """Check if paper exists in ALL databases - FIXED database checks"""
         filename = str(pdf_path.name)
 
-        # Check MongoDB first (fastest check)
+        # Check each database
+        in_mongodb = False
+        in_chromadb = False
+        in_neo4j = False
+
+        # Check MongoDB - FIXED: Use proper None comparison
         if self.mongo_db is not None:
             try:
                 existing = self.mongo_db.papers.find_one({
@@ -88,13 +93,58 @@ class PdfIngestionPipeline:
                         {"source": filename}
                     ]
                 })
-                if existing:
-                    logger.info(f"📋 Paper {filename} already exists in MongoDB - skipping")
-                    return True
+                in_mongodb = existing is not None
             except Exception as e:
                 logger.warning(f"Could not check MongoDB: {e}")
 
-        return False  # Process if not found or can't check
+        # Check ChromaDB - FIXED: Use proper None comparison
+        if self.vector_collection is not None:
+            try:
+                # Try to find any chunks from this paper
+                results = self.vector_collection.query(
+                    query_texts=["test"],  # Dummy query
+                    n_results=1,
+                    where={"paper_id": paper_id},
+                    include=["metadatas"]
+                )
+                in_chromadb = bool(results.get("metadatas") and results["metadatas"][0])
+            except Exception as e:
+                logger.warning(f"Could not check ChromaDB: {e}")
+
+        # Check Neo4j - FIXED: Use proper None comparison
+        if self.graph_db is not None:
+            try:
+                with self.graph_db.session() as session:
+                    result = session.run(
+                        "MATCH (p:Paper {id: $paper_id}) RETURN count(p) as count",
+                        paper_id=paper_id
+                    )
+                    count = result.single()["count"]
+                    in_neo4j = count > 0
+            except Exception as e:
+                logger.warning(f"Could not check Neo4j: {e}")
+
+        # Only skip if paper exists in ALL available databases
+        available_dbs = 0
+        if self.mongo_db is not None:
+            available_dbs += 1
+        if self.vector_collection is not None:
+            available_dbs += 1
+        if self.graph_db is not None:
+            available_dbs += 1
+
+        existing_dbs = sum([in_mongodb, in_chromadb, in_neo4j])
+
+        if existing_dbs == available_dbs and available_dbs > 0:
+            logger.info(f"📋 Paper {filename} exists in all {available_dbs} databases - skipping")
+            return True
+        elif existing_dbs > 0:
+            logger.info(
+                f"📋 Paper {filename} exists in {existing_dbs}/{available_dbs} databases - processing to complete")
+            return False
+        else:
+            logger.info(f"📋 Paper {filename} not found in any database - processing")
+            return False
 
     def extract_metadata(self, documents) -> Dict:
         """Extract metadata with better academic focus"""
@@ -303,7 +353,7 @@ class PdfIngestionPipeline:
             return {"chunks": [], "embeddings": [], "metadata": []}
 
     def store_in_vectordb(self, embedding_data, paper_id, metadata):
-        """Store embeddings in ChromaDB"""
+        """Store embeddings in ChromaDB - FIXED to handle None values"""
         if self.vector_collection is None:
             logger.error("ChromaDB collection not available")
             return False
@@ -319,21 +369,28 @@ class PdfIngestionPipeline:
             # Create unique IDs for chunks
             ids = [f"{paper_id}-chunk-{i}" for i in range(len(chunks))]
 
-            # Create metadata for each chunk
+            # Create metadata for each chunk - CLEAN ALL NONE VALUES
             metadatas = []
             documents = []
 
             for i, chunk in enumerate(chunks):
+                # Clean metadata by converting None to empty strings/defaults
                 chunk_metadata = {
-                    "paper_id": paper_id,
-                    "page": chunk.metadata.get("page", 0),
-                    "source": chunk.metadata.get("source", ""),
-                    "chunk_id": i,
-                    "title": metadata.get("title", "Unknown"),
-                    "authors": str(metadata.get("authors", [])),  # Convert to string for ChromaDB
-                    "year": metadata.get("year", "Unknown"),
-                    "research_field": metadata.get("research_field", "Unknown")
+                    "paper_id": str(paper_id),
+                    "page": int(chunk.metadata.get("page", 0)),
+                    "source": str(chunk.metadata.get("source", "")),
+                    "chunk_id": int(i),
+                    "title": str(metadata.get("title", "Unknown")),
+                    "authors": str(metadata.get("authors", [])),  # Convert list to string
+                    "year": str(metadata.get("year") or "Unknown"),  # Handle None year
+                    "research_field": str(metadata.get("research_field", "Unknown"))
                 }
+
+                # Ensure no None values in metadata
+                for key, value in chunk_metadata.items():
+                    if value is None:
+                        chunk_metadata[key] = "Unknown"
+
                 metadatas.append(chunk_metadata)
                 documents.append(chunk.page_content)
 
@@ -478,8 +535,9 @@ class PdfIngestionPipeline:
             return False
 
     def store_topics_in_mongodb(self, topics, paper_id, metadata):
-        """Store topic data in MongoDB topics collection"""
-        if not topics or not self.mongo_db:
+        """Store topic data in MongoDB topics collection - FIXED database check"""
+        # FIXED: Use proper None comparison instead of boolean check
+        if not topics or self.mongo_db is None:
             return False
 
         try:
