@@ -14,6 +14,7 @@ charset-normalizer==3.4.1
 chroma-hnswlib==0.7.6
 chromadb==0.6.3
 click==8.1.8
+colorama==0.4.6
 coloredlogs==15.0.1
 dataclasses-json==0.6.7
 Deprecated==1.2.18
@@ -86,6 +87,7 @@ orjson==3.10.15
 overrides==7.7.0
 packaging==24.2
 pandas==2.2.3
+pandas-stubs==2.2.3.250527
 posthog==3.23.0
 propcache==0.3.1
 protobuf==5.29.4
