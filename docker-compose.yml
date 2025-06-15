@@ -77,7 +77,7 @@ services:
       - app-network
 
   chromadb:
-    image: chromadb/chroma:0.6.3
+    image: chromadb/chroma:latest
     restart: unless-stopped
     ports:
       - "8001:8000"

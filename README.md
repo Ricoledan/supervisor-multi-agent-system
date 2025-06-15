@@ -403,4 +403,5 @@ python cli.py logs --follow
 - [Neo4j Graph Database](https://neo4j.com/docs/)
 - [ChromaDB Vector Database](https://docs.trychroma.com/)
 - [FastAPI Framework](https://fastapi.tiangolo.com/)
+- [Multi-Agent Systems](https://langchain-ai.lang.chat/langgraph/concepts/multi_agent/)
 

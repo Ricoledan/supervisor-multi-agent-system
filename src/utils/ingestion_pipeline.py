@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class PdfIngestionPipeline:
     def __init__(self):
         """Initialize with proper error handling and connection testing"""
-        self.embeddings = OpenAIEmbeddings()
+        self.embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
         self.model = get_openai_model()
         self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
