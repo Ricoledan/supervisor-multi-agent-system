@@ -275,3 +275,155 @@ def check_agent_health():
             "error": str(e),
             "coordinator_pattern": "Modern LangGraph (with errors)"
         }
+
+
+# Add this new endpoint to src/api/v1/endpoints/agent.py
+
+@router.post("/agent/clean")
+def process_query_clean(request: QueryRequest):
+    """
+    Process query with clean, formatted output for easy reading.
+
+    This endpoint returns the analysis result in a clean, markdown-formatted
+    response that's easy to read and demo-friendly.
+    """
+    try:
+        logger.info(f"Processing clean query: {request.query[:50]}...")
+
+        # Use the direct processing function
+        result = process_query_direct(request.query)
+
+        if result["status"] == "success":
+            # Extract and clean the message content
+            raw_message = result.get("message", "")
+
+            # Remove markdown formatting for cleaner display
+            import re
+
+            # Remove markdown headers and replace with clean formatting
+            clean_message = re.sub(r'^#+\s*', '', raw_message, flags=re.MULTILINE)
+            clean_message = re.sub(r'\*\*(.*?)\*\*', r'\1', clean_message)  # Remove bold
+            clean_message = re.sub(r'---+', '=' * 60, clean_message)  # Replace dividers
+
+            # Extract system performance info
+            specialists_used = result.get("specialists_used", {})
+            system_health = result.get("system_health", {})
+
+            # Build clean response
+            clean_response = {
+                "status": "success",
+                "query": request.query,
+                "analysis": clean_message.strip(),
+                "system_info": {
+                    "relationship_analyst_used": specialists_used.get("relationship_analyst", False),
+                    "theme_analyst_used": specialists_used.get("theme_analyst", False),
+                    "database_usage": system_health.get("database_usage", "Unknown"),
+                    "response_quality": system_health.get("response_quality", "Unknown")
+                }
+            }
+
+            logger.info("Clean query processing completed successfully")
+            return clean_response
+
+        else:
+            logger.error(f"Query processing failed: {result.get('message', 'Unknown error')}")
+            raise HTTPException(status_code=500, detail=result.get("message", "Processing failed"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in clean agent endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/agent/formatted")
+def process_query_formatted(request: QueryRequest):
+    """
+    Process query with beautifully formatted output for presentations and demos.
+
+    Returns analysis in a structured format perfect for displaying in articles,
+    presentations, or demo environments.
+    """
+    try:
+        logger.info(f"Processing formatted query: {request.query[:50]}...")
+
+        result = process_query_direct(request.query)
+
+        if result["status"] == "success":
+            raw_message = result.get("message", "")
+            specialists_used = result.get("specialists_used", {})
+            system_health = result.get("system_health", {})
+
+            # Parse the message to extract key sections
+            sections = parse_analysis_sections(raw_message)
+
+            formatted_response = {
+                "status": "success",
+                "query": {
+                    "text": request.query,
+                    "type": result.get("query_type", "RESEARCH_QUERY")
+                },
+                "analysis": {
+                    "summary": sections.get("summary", ""),
+                    "relationship_findings": sections.get("relationship", ""),
+                    "thematic_findings": sections.get("theme", ""),
+                    "key_insights": sections.get("insights", []),
+                    "recommendations": sections.get("recommendations", "")
+                },
+                "system_performance": {
+                    "specialists_activated": {
+                        "relationship_analyst": {
+                            "used": specialists_used.get("relationship_analyst", False),
+                            "status": system_health.get("relationship_analyst", "Not Used")
+                        },
+                        "theme_analyst": {
+                            "used": specialists_used.get("theme_analyst", False),
+                            "status": system_health.get("theme_analyst", "Not Used")
+                        }
+                    },
+                    "database_utilization": system_health.get("database_usage", "Unknown"),
+                    "confidence_level": system_health.get("response_quality", "Unknown")
+                },
+                "metadata": {
+                    "processing_time": "15-45 seconds",
+                    "databases_queried": ["Neo4j", "MongoDB", "ChromaDB"],
+                    "ai_model": "GPT-4"
+                }
+            }
+
+            return formatted_response
+
+        else:
+            raise HTTPException(status_code=500, detail=result.get("message", "Processing failed"))
+
+    except Exception as e:
+        logger.error(f"Error in formatted processing: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Formatted processing failed: {str(e)}")
+
+
+def parse_analysis_sections(message: str) -> dict:
+    """Parse the analysis message into structured sections."""
+    sections = {}
+
+    # Extract different sections using patterns
+    import re
+
+    # Try to extract summary (first paragraph after header)
+    summary_match = re.search(r'Query:\*\*.*?\n\n---\n\n(.*?)(?:\n\n|\n###|\nHowever|\n-)', message, re.DOTALL)
+    if summary_match:
+        sections["summary"] = summary_match.group(1).strip()
+
+    # Extract insights and recommendations
+    insights = []
+    for line in message.split('\n'):
+        if line.strip().startswith('- ') and ('insight' in line.lower() or 'finding' in line.lower()):
+            insights.append(line.strip()[2:])  # Remove '- '
+    sections["insights"] = insights
+
+    # Extract recommendations
+    rec_match = re.search(r'recommendation[s]?\s*[:\-]?\s*(.*?)(?:\n\n|\n###|\n-|$)', message,
+                          re.IGNORECASE | re.DOTALL)
+    if rec_match:
+        sections["recommendations"] = rec_match.group(1).strip()
+
+    return sections
