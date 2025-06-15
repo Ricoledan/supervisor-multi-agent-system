@@ -526,7 +526,7 @@ def process_query_direct(query: str) -> dict:
                 "relationship_analyst": "✅ Active" if relationship_used else "⚪ Not Used",
                 "theme_analyst": "✅ Active" if theme_used else "⚪ Not Used",
                 "database_usage": "✅ High" if (relationship_used and theme_used) else "🟡 Partial" if (
-                            relationship_used or theme_used) else "❌ Low",
+                        relationship_used or theme_used) else "❌ Low",
                 "response_quality": "Database-driven" if (relationship_used or theme_used) else "General knowledge"
             }
         }
