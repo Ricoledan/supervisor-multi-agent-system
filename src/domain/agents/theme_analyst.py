@@ -1,8 +1,11 @@
+# src/domain/agents/theme_analyst.py
+
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from src.services.document_service import query_mongodb
+from src.utils.agent_wrapper import wrap_agent
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,7 +48,6 @@ def topic_tool(input: str) -> str:
     try:
         logger.info(f"Topic tool called with input: {input[:50]}...")
 
-        # ACTUALLY CALL THE DATABASE
         results = query_mongodb(input)
 
         topics = results.get("topics", {})
@@ -125,39 +127,8 @@ _base_agent = create_react_agent(
     name="theme_analyst_agent"
 )
 
-
-class WrappedAgent:
-    def invoke(self, inputs):
-        try:
-            response = _base_agent.invoke(inputs)
-
-            if hasattr(response, 'messages') and response.messages:
-                # Get the last AI message
-                for message in reversed(response.messages):
-                    if hasattr(message, 'content') and message.content:
-                        # Look for actual analysis content, not just tool calls
-                        content = message.content.strip()
-                        if content and len(content) > 50 and ('##' in content or 'Topic Analysis' in content):
-                            return {"output": content}
-
-                for message in reversed(response.messages):
-                    if hasattr(message, 'content') and message.content:
-                        content = message.content.strip()
-                        if content and len(content) > 20:
-                            return {"output": content}
-
-            if hasattr(response, 'content'):
-                return {"output": response.content}
-            elif isinstance(response, dict) and "output" in response:
-                return response
-            elif isinstance(response, str):
-                return {"output": response}
-            else:
-                return {"output": str(response)}
-
-        except Exception as e:
-            logger.error(f"Error in theme analyst agent wrapper: {e}")
-            return {"output": f"Error in theme analyst agent: {str(e)}"}
-
-
-theme_analyst = WrappedAgent()
+theme_analyst = wrap_agent(
+    agent=_base_agent,
+    content_indicators=['##', 'Topic Analysis', 'Analysis', '📊'],
+    agent_name="theme_analyst"
+)

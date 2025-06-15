@@ -6,7 +6,7 @@ logger = logging.getLogger("graph_service")
 
 
 def query_graphdb(query: str) -> Dict[str, Any]:
-    """Query Neo4j graph database for relevant relationships."""
+    """Query a Neo4j graph database for relevant relationships."""
     logger.info(f"Querying graph DB for: {query[:30]}...")
     try:
         neo4j_config = Neo4jConfig()
@@ -24,7 +24,6 @@ def query_graphdb(query: str) -> Dict[str, Any]:
         }
 
         with driver.session() as session:
-            # Find relevant concepts based on query terms
             concepts_query = """
             MATCH (c:Concept)
             WHERE ANY(term IN $terms WHERE toLower(c.name) CONTAINS toLower(term) OR toLower(term) CONTAINS toLower(c.name))
