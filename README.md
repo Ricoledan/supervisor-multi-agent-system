@@ -573,11 +573,11 @@ python cli.py test --simple
 
 After starting the system, access these interfaces:
 
-- **🔗 API Documentation**: http://localhost:8000/docs
-- **📊 API Status**: http://localhost:8000/api/v1/status
-- **🕸️ Neo4j Browser**: http://localhost:7474 (neo4j/password)
-- **📄 MongoDB Express**: http://localhost:8081
-- **🎯 ChromaDB**: http://localhost:8001
+- **API Documentation**: http://localhost:8000/docs
+- **API Status**: http://localhost:8000/api/v1/status
+- **Neo4j Browser**: http://localhost:7474 (neo4j/password)
+- **MongoDB Express**: http://localhost:8081
+- **ChromaDB**: http://localhost:8001
 
 ## 🧪 Testing & Quality Assurance
 
