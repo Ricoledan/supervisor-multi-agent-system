@@ -2,18 +2,26 @@
 
 ## Overview
 
-This project implements a sophisticated Multi-Agent System (MAS) architecture featuring a **Research Coordinator** that orchestrates specialized AI agents to analyze academic research. The system transforms academic papers into a searchable, structured, and semantically rich knowledge base through intelligent agent coordination powered by **LangGraph** state management and **Command-based routing**.
+This project implements a sophisticated Multi-Agent System (MAS) architecture featuring a **Research Coordinator** that
+orchestrates specialized AI agents to analyze academic research. The system transforms academic papers into a
+searchable, structured, and semantically rich knowledge base through intelligent agent coordination powered by *
+*LangGraph** state management and **Command-based routing**.
 
-##  Key Features
+## Key Features
 
 ### Core Capabilities
 
-- **Intelligent Agent Orchestration**: Research Coordinator uses LangGraph StateGraph with Command-based routing to dynamically delegate queries to specialized agents
-- ️**Multi-Database Architecture**: Integrates Neo4j (graph), MongoDB (documents), and ChromaDB (vectors) for comprehensive data storage
-- **Automated PDF Processing**: Advanced ingestion pipeline with entity extraction, topic modeling, and metadata enrichment using OpenAI GPT-4
+- **Intelligent Agent Orchestration**: Research Coordinator uses LangGraph StateGraph with Command-based routing to
+  dynamically delegate queries to specialized agents
+- ️**Multi-Database Architecture**: Integrates Neo4j (graph), MongoDB (documents), and ChromaDB (vectors) for
+  comprehensive data storage
+- **Automated PDF Processing**: Advanced ingestion pipeline with entity extraction, topic modeling, and metadata
+  enrichment using OpenAI GPT-4
 - **Semantic Search & Retrieval**: Hybrid search combining vector similarity, graph traversal, and document analysis
-- **Real-time Research Analysis**: Dynamic routing between relationship analysis and thematic analysis based on query classification
-- ️**Professional CLI Interface**: Comprehensive command-line management with health checks, logging, and testing capabilities
+- **Real-time Research Analysis**: Dynamic routing between relationship analysis and thematic analysis based on query
+  classification
+- ️**Professional CLI Interface**: Comprehensive command-line management with health checks, logging, and testing
+  capabilities
 
 ### LangGraph Workflow Architecture
 
@@ -42,10 +50,14 @@ Query Classification Node
 
 ### Agent Specializations
 
-- **🎯 Research Coordinator**: Central supervisor using LangGraph Commands for intelligent query classification and agent delegation
-- **🔗 Relationship Analyst**: Maps connections between papers, authors, concepts, and research lineages using Neo4j graph queries
-- **📊 Theme Analyst**: Identifies patterns, topics, and trends across research literature using MongoDB document analysis
-- **🏷️ Entity Extraction**: Automated identification of key concepts, methodologies, and research entities via LLM processing
+- **🎯 Research Coordinator**: Central supervisor using LangGraph Commands for intelligent query classification and agent
+  delegation
+- **🔗 Relationship Analyst**: Maps connections between papers, authors, concepts, and research lineages using Neo4j
+  graph queries
+- **📊 Theme Analyst**: Identifies patterns, topics, and trends across research literature using MongoDB document
+  analysis
+- **🏷️ Entity Extraction**: Automated identification of key concepts, methodologies, and research entities via LLM
+  processing
 - **📈 Topic Modeling**: Latent theme discovery and research domain classification with weighted term extraction
 
 ## ️ System Architecture
@@ -111,8 +123,8 @@ supervisor-multi-agent-system/
 
 | Component             | Technology              | Purpose                                               |
 |-----------------------|-------------------------|-------------------------------------------------------|
-| **Agent Framework**   | LangGraph + LangChain   | Modern state-based multi-agent orchestration         |
-| **LLM Integration**   | OpenAI GPT-4            | Entity extraction, topic modeling, and analysis      |
+| **Agent Framework**   | LangGraph + LangChain   | Modern state-based multi-agent orchestration          |
+| **LLM Integration**   | OpenAI GPT-4            | Entity extraction, topic modeling, and analysis       |
 | **API Framework**     | FastAPI                 | High-performance web API with automatic documentation |
 | **Graph Database**    | Neo4j                   | Knowledge graph for entity relationships              |
 | **Document Database** | MongoDB                 | Structured document storage and topic modeling        |
@@ -120,7 +132,7 @@ supervisor-multi-agent-system/
 | **Containerization**  | Docker + Docker Compose | Consistent deployment and scaling                     |
 | **CLI Interface**     | Click                   | Professional command-line management                  |
 
-##  Prerequisites
+## Prerequisites
 
 - **Python**: 3.11+
 - **Docker**: Latest version with Docker Compose
@@ -128,7 +140,7 @@ supervisor-multi-agent-system/
 - **System Requirements**: 8GB RAM minimum, 16GB recommended
 - **Storage**: 20GB minimum, 50GB recommended for large document collections
 
-##  Quick Start
+## Quick Start
 
 ### 1. Clone and Setup
 
@@ -180,6 +192,7 @@ curl -X POST "http://localhost:8000/api/v1/agent" \
 The system includes a comprehensive CLI for professional management:
 
 ### System Management
+
 ```bash
 python cli.py start           # Start all services
 python cli.py stop            # Stop all services  
@@ -188,6 +201,7 @@ python cli.py status          # Check service status
 ```
 
 ### Development & Testing
+
 ```bash
 python cli.py test            # Test system functionality
 python cli.py test --simple   # Clean, formatted output
@@ -198,14 +212,16 @@ python cli.py logs --follow   # Follow logs in real-time
 ```
 
 ### Database Management
+
 ```bash
 python cli.py start --databases-only  # Start only databases
 python cli.py restart --service neo4j  # Restart specific service
 ```
 
-##  Research Applications & Use Cases
+## Research Applications & Use Cases
 
 ### Literature Review Automation
+
 ```json
 {
   "query": "What are the main approaches to transformer architectures in natural language processing?"
@@ -213,6 +229,7 @@ python cli.py restart --service neo4j  # Restart specific service
 ```
 
 ### Research Gap Identification
+
 ```json
 {
   "query": "How do computer vision techniques connect to medical diagnosis research?"
@@ -220,6 +237,7 @@ python cli.py restart --service neo4j  # Restart specific service
 ```
 
 ### Trend Analysis
+
 ```json
 {
   "query": "What themes are emerging in climate change adaptation research over the past 5 years?"
@@ -227,6 +245,7 @@ python cli.py restart --service neo4j  # Restart specific service
 ```
 
 ### Citation Network Analysis
+
 ```json
 {
   "query": "Show me the research lineage and evolution of BERT language models"
@@ -234,17 +253,19 @@ python cli.py restart --service neo4j  # Restart specific service
 ```
 
 ### Cross-Disciplinary Discovery
+
 ```json
 {
   "query": "How does reinforcement learning apply to robotics and autonomous systems?"
 }
 ```
 
-##  API Documentation
+## API Documentation
 
 ### Core Research Endpoint
 
 **POST /api/v1/agent**
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/agent" \
   -H "Content-Type: application/json" \
@@ -252,6 +273,7 @@ curl -X POST "http://localhost:8000/api/v1/agent" \
 ```
 
 ### Response Structure
+
 ```json
 {
   "status": "success",
@@ -264,7 +286,7 @@ curl -X POST "http://localhost:8000/api/v1/agent" \
   },
   "system_health": {
     "relationship_analyst": "✅ Active",
-    "theme_analyst": "✅ Active", 
+    "theme_analyst": "✅ Active",
     "database_usage": "✅ High",
     "response_quality": "Database-driven"
   }
@@ -273,13 +295,13 @@ curl -X POST "http://localhost:8000/api/v1/agent" \
 
 ### Additional Endpoints
 
-| Endpoint                | Method | Description                     |
-|-------------------------|--------|---------------------------------|
-| `/api/v1/status`        | GET    | System health check             |
-| `/api/v1/agent`         | POST   | Main research analysis endpoint |
-| `/api/v1/agent/detailed`| POST   | Full conversation state         |
-| `/api/v1/agent/raw`     | POST   | Debug endpoint with raw outputs |
-| `/api/v1/agent/health`  | GET    | Agent system health check       |
+| Endpoint                 | Method | Description                     |
+|--------------------------|--------|---------------------------------|
+| `/api/v1/status`         | GET    | System health check             |
+| `/api/v1/agent`          | POST   | Main research analysis endpoint |
+| `/api/v1/agent/detailed` | POST   | Full conversation state         |
+| `/api/v1/agent/raw`      | POST   | Debug endpoint with raw outputs |
+| `/api/v1/agent/health`   | GET    | Agent system health check       |
 
 ## 🗄️ Database Schema & Architecture
 
@@ -303,24 +325,38 @@ curl -X POST "http://localhost:8000/api/v1/agent" \
 // papers collection
 {
     paper_id: String,
-    metadata: {
-        title, authors, year, abstract, keywords, 
-        journal, doi, research_field, methodology
-    },
+        metadata
+:
+    {
+        title, authors, year, abstract, keywords,
+            journal, doi, research_field, methodology
+    }
+,
     content: [{page, text}],
-    entities: {
+        entities
+:
+    {
         concepts, relationships
-    },
+    }
+,
     processed_at: Date
 }
 
 // topics collection  
 {
     paper_id: String,
-    category: String,
-    terms: [{term, weight}],
-    source: String,
-    created_at: Date
+        category
+:
+    String,
+        terms
+:
+    [{term, weight}],
+        source
+:
+    String,
+        created_at
+:
+    Date
 }
 ```
 
@@ -380,45 +416,51 @@ NEO4J_POOL_SIZE=10
 MONGODB_POOL_SIZE=10
 ```
 
-##  Agent Tool System
+## Agent Tool System
 
 ### Relationship Analyst Tools
+
 - **`analyze_research_relationships()`**: Queries Neo4j for entity connections
-  - Paper lineages and citation networks
-  - Author collaboration patterns  
-  - Cross-disciplinary concept relationships
-  - Research influence patterns
+    - Paper lineages and citation networks
+    - Author collaboration patterns
+    - Cross-disciplinary concept relationships
+    - Research influence patterns
 
 ### Theme Analyst Tools
-- **`analyze_research_themes()`**: Queries MongoDB for topic patterns
-  - Latent theme discovery across document collections
-  - Research trend identification and evolution
-  - Methodological approach analysis
-  - Domain-specific terminology extraction
 
-##  Performance & Scalability
+- **`analyze_research_themes()`**: Queries MongoDB for topic patterns
+    - Latent theme discovery across document collections
+    - Research trend identification and evolution
+    - Methodological approach analysis
+    - Domain-specific terminology extraction
+
+## Performance & Scalability
 
 ### Performance Characteristics
+
 - **Query Response Time**: 15-45 seconds (depends on database size and complexity)
 - **PDF Processing Speed**: 2-3 minutes per paper (including all extractions)
 - **Concurrent Users**: Supports 5-10 simultaneous research queries
 - **Database Storage**: ~500MB per 100 research papers
 
 ### System Requirements
+
 - **Minimum**: 8GB RAM, 4 CPU cores, 20GB storage
 - **Recommended**: 16GB RAM, 8 CPU cores, 50GB storage
 - **Production**: 32GB RAM, 8+ CPU cores, 100GB+ storage
 
 ### Scalability Options
+
 - **Horizontal Scaling**: Docker Compose replicas for API services
 - **Database Optimization**: Connection pooling and memory tuning
 - **Caching**: Redis integration for frequent queries (future enhancement)
 
-##  Troubleshooting
+## Troubleshooting
 
 ### Common Issues & Solutions
 
 #### Database Connection Failures
+
 ```bash
 # Check service status
 python cli.py status
@@ -433,6 +475,7 @@ python cli.py restart --service neo4j
 ```
 
 #### Empty Database Results
+
 ```bash
 # Verify data ingestion completed
 python cli.py test --query "machine learning"
@@ -445,6 +488,7 @@ python src/utils/ingestion_pipeline.py
 ```
 
 #### API Timeout Issues
+
 ```bash
 # Increase timeout for complex queries
 python cli.py test --timeout 120
@@ -457,6 +501,7 @@ python cli.py logs --follow
 ```
 
 #### Source Directory Issues
+
 ```bash
 # Verify sources directory exists
 ls -la sources/
@@ -465,20 +510,23 @@ ls -la sources/
 python cli.py test --query "test"
 ```
 
-##  Development & Extension
+## Development & Extension
 
 ### Adding New Specialist Agents
 
 1. **Create Agent File**: `src/domain/agents/new_specialist.py`
+
 ```python
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
+
 
 @tool
 def analyze_custom_data(query: str) -> str:
     """Custom analysis tool"""
     # Your custom database queries here
     return analysis_result
+
 
 specialist_agent = create_react_agent(
     model=model,
@@ -521,7 +569,7 @@ python cli.py logs --follow
 python cli.py test --simple
 ```
 
-##  Access Points
+## Access Points
 
 After starting the system, access these interfaces:
 
@@ -555,39 +603,28 @@ curl -X GET "http://localhost:8000/api/v1/agent/health"
 ### Quality Validation
 
 The system includes built-in quality checks:
+
 - **Data Integrity**: Validates cross-database consistency
 - **Response Quality**: Monitors agent specialist usage
 - **Performance Metrics**: Tracks query response times
 - **Database Health**: Monitors connection status and query performance
 
-##  Supported Document Types & Sources
+## Supported Document Types & Sources
 
 ### Input Formats
+
 - **Primary**: PDF research papers with text content
-- **Secondary**: Text files (.txt, .md) for preprocessing  
+- **Secondary**: Text files (.txt, .md) for preprocessing
 - **Future**: DOI-based ingestion, arXiv API integration
 
 ### Recommended Paper Sources
+
 - Academic conferences (NeurIPS, ICML, ACL, ICLR, etc.)
 - Journal articles from major publishers (IEEE, ACM, Springer, Elsevier)
 - Preprint servers (arXiv, bioRxiv, medRxiv)
 - Technical reports and white papers
 
-### Source Directory Structure
-```
-sources/
-├── machine_learning/
-│   ├── transformer_paper.pdf
-│   └── neural_networks.pdf
-├── computer_vision/
-│   └── image_recognition.pdf
-├── nlp/
-│   └── language_models.pdf
-└── interdisciplinary/
-    └── ai_applications.pdf
-```
-
-##  References & Resources
+## References & Resources
 
 - [LangGraph Multi-Agent Documentation](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
 - [Neo4j Graph Database Documentation](https://neo4j.com/docs/)
@@ -597,11 +634,11 @@ sources/
 - [Docker Compose Documentation](https://docs.docker.com/compose/)
 - [Multi-Agent Systems](https://langchain-ai.lang.chat/langgraph/concepts/multi_agent/)
 
-##  Contributing
+## Contributing
 
 Contributions are welcome! Please read our contributing guidelines and submit pull requests for any improvements.
 
-##  License
+## License
 
 This project is licensed under the MIT License—see the LICENSE file for details.
 
