@@ -1,15 +1,43 @@
-# src/domain/agents/topic_model.py
-
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain.tools import Tool
-from src.domain.prompts.agent_prompts import TOPIC_MODEL_AGENT_PROMPT
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from src.services.document_service import query_mongodb
 import logging
 
 logger = logging.getLogger(__name__)
 
 model = ChatOpenAI(model="gpt-4")
+
+THEME_ANALYST_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are a Theme Analyst specializing in academic research topics and patterns.
+Your expertise lies in analyzing document collections and identifying thematic structures across research literature.
+
+Core Responsibilities:
+- Query MongoDB document database to analyze research paper content and metadata
+- Identify latent themes, topics, and research patterns across document collections
+- Extract key terminology and concepts that characterize research domains
+- Analyze temporal trends and emerging research areas
+- Classify research approaches, methodologies, and application domains
+
+Database Analysis Focus:
+- Extract topic categories and term clusters from MongoDB
+- Analyze paper abstracts, keywords, and content for thematic patterns
+- Identify research trends and emerging areas within domains
+- Map methodological approaches and application areas
+- Present thematic findings in structured, academic format
+
+When analyzing queries, focus on:
+- "Main themes/topics in" - thematic categorization
+- "Research patterns" - trend identification
+- "Emerging areas" - temporal analysis
+- "Dominant approaches" - methodological clustering
+- "Research domains" - field characterization
+
+Provide quantitative insights when possible (paper counts, topic frequencies) and clearly distinguish between different thematic categories. Always indicate data sources and limitations.
+"""),
+    MessagesPlaceholder(variable_name="messages")
+])
 
 
 def topic_tool(input: str) -> str:
@@ -38,10 +66,8 @@ def topic_tool(input: str) -> str:
 
 **Recommendation:** Run ingestion pipeline to populate MongoDB with academic papers."""
 
-        # Build analysis from ACTUAL data
         analysis = "## 📊 Topic Analysis (from MongoDB Database)\n\n"
 
-        # Real topics from database
         if topics:
             analysis += f"### 🏷️ Topic Categories Found ({len(topics)})\n"
             for category, terms in topics.items():
@@ -54,7 +80,6 @@ def topic_tool(input: str) -> str:
                     else:
                         analysis += f"- {term}\n"
 
-        # Real papers from database
         if papers:
             analysis += f"\n### 📄 Related Papers ({len(papers)})\n"
             for paper in papers[:5]:
@@ -87,24 +112,25 @@ def topic_tool(input: str) -> str:
         return f"Error querying MongoDB: {str(e)}\nCheck database connection and data availability."
 
 
-tools = [Tool.from_function(topic_tool, name="topic_tool",
-                            description="Analyzes topics in research documents from actual MongoDB database")]
+tools = [Tool.from_function(
+    topic_tool,
+    name="topic_tool",
+    description="Analyzes topics in research documents from actual MongoDB database"
+)]
 
 _base_agent = create_react_agent(
     model=model,
     tools=tools,
-    prompt=TOPIC_MODEL_AGENT_PROMPT,
-    name="topic_model_agent"
+    prompt=THEME_ANALYST_PROMPT,
+    name="theme_analyst_agent"
 )
 
 
 class WrappedAgent:
     def invoke(self, inputs):
         try:
-            # Get the response from the base agent
             response = _base_agent.invoke(inputs)
 
-            # Extract clean content from LangGraph response
             if hasattr(response, 'messages') and response.messages:
                 # Get the last AI message
                 for message in reversed(response.messages):
@@ -114,14 +140,12 @@ class WrappedAgent:
                         if content and len(content) > 50 and ('##' in content or 'Topic Analysis' in content):
                             return {"output": content}
 
-                # If no good content found, look at tool responses
                 for message in reversed(response.messages):
                     if hasattr(message, 'content') and message.content:
                         content = message.content.strip()
                         if content and len(content) > 20:
                             return {"output": content}
 
-            # Fallback: check if response has direct output
             if hasattr(response, 'content'):
                 return {"output": response.content}
             elif isinstance(response, dict) and "output" in response:
@@ -129,13 +153,11 @@ class WrappedAgent:
             elif isinstance(response, str):
                 return {"output": response}
             else:
-                # Last resort: convert to string
                 return {"output": str(response)}
 
         except Exception as e:
-            logger.error(f"Error in topic model agent wrapper: {e}")
-            return {"output": f"Error in topic model agent: {str(e)}"}
+            logger.error(f"Error in theme analyst agent wrapper: {e}")
+            return {"output": f"Error in theme analyst agent: {str(e)}"}
 
 
-# Export the fixed agent
 theme_analyst = WrappedAgent()

@@ -1,9 +1,7 @@
-# src/domain/agents/graph_writer.py
-
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain.tools import Tool
-from src.domain.prompts.agent_prompts import GRAPH_WRITER_AGENT_PROMPT
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from src.services.graph_service import query_graphdb
 import logging
 
@@ -11,13 +9,42 @@ logger = logging.getLogger(__name__)
 
 model = ChatOpenAI(model="gpt-4")
 
+RELATIONSHIP_ANALYST_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are a Relationship Analyst specializing in academic research connections and networks.
+Your expertise lies in analyzing knowledge graphs and mapping relationships between research entities.
+
+Core Responsibilities:
+- Query Neo4j graph database to find connections between papers, authors, and concepts
+- Identify research lineages, citation networks, and conceptual relationships
+- Analyze how ideas flow between researchers, institutions, and research domains
+- Map collaborative networks and cross-disciplinary connections
+- Provide insights into research influence patterns and knowledge evolution
+
+Database Analysis Focus:
+- Extract meaningful concept relationships from Neo4j
+- Identify central nodes and influential connections in research networks
+- Trace research lineages and conceptual evolution paths
+- Analyze collaborative patterns and institutional connections
+- Present relationship findings in clear, academic format
+
+When analyzing queries, focus on:
+- "How X relates to Y" - direct relationship analysis
+- "Connections between" - network mapping
+- "Research lineage" - historical development patterns
+- "Influential papers/authors" - centrality analysis
+- "Cross-disciplinary" - interdisciplinary connection mapping
+
+Always ground your analysis in actual database content and clearly indicate when data is limited.
+"""),
+    MessagesPlaceholder(variable_name="messages")
+])
+
 
 def enhanced_graph_tool(input: str) -> str:
     """Enhanced graph analysis with ACTUAL database queries"""
     try:
         logger.info(f"Graph tool called with input: {input[:50]}...")
 
-        # ACTUALLY CALL THE DATABASE
         graph_data = query_graphdb(input)
 
         concepts = graph_data.get("concepts", [])
@@ -27,7 +54,6 @@ def enhanced_graph_tool(input: str) -> str:
         logger.info(
             f"Database returned: {len(concepts)} concepts, {len(relationships)} relationships, {len(papers)} papers")
 
-        # If no data found, be explicit about it
         if not concepts and not relationships and not papers:
             return f"""## 🔗 Knowledge Graph Analysis
 
@@ -40,10 +66,8 @@ def enhanced_graph_tool(input: str) -> str:
 
 **Recommendation:** Populate database with academic papers first using the ingestion pipeline."""
 
-        # Build analysis from ACTUAL data
         analysis = "## 🔗 Knowledge Graph Analysis (from Neo4j Database)\n\n"
 
-        # Real concepts from database
         if concepts:
             analysis += f"### 📋 Key Concepts Found ({len(concepts)})\n"
             concept_groups = {}
@@ -60,7 +84,6 @@ def enhanced_graph_tool(input: str) -> str:
                     desc = concept.get('description', 'No description')[:100]
                     analysis += f"- **{name}**: {desc}...\n"
 
-        # Real relationships from database
         if relationships:
             analysis += f"\n### 🔗 Relationships Found ({len(relationships)})\n"
             for rel in relationships[:5]:
@@ -69,7 +92,6 @@ def enhanced_graph_tool(input: str) -> str:
                 rel_type = rel.get('type', 'related_to')
                 analysis += f"- {from_node} → [{rel_type}] → {to_node}\n"
 
-        # Real papers from database
         if papers:
             analysis += f"\n### 📄 Connected Papers ({len(papers)})\n"
             for paper in papers[:3]:
@@ -92,35 +114,29 @@ def enhanced_graph_tool(input: str) -> str:
         return f"Error querying Neo4j database: {str(e)}\nCheck database connection and data availability."
 
 
-# Create the enhanced tool
 tools = [Tool.from_function(
     enhanced_graph_tool,
     name="enhanced_graph_tool",
     description="Analyzes concept relationships in the knowledge graph with detailed insights from actual database"
 )]
 
-# Create the agent with enhanced tool
 _base_agent = create_react_agent(
     model=model,
     tools=tools,
-    prompt=GRAPH_WRITER_AGENT_PROMPT,
-    name="enhanced_graph_writer_agent"
+    prompt=RELATIONSHIP_ANALYST_PROMPT,
+    name="relationship_analyst_agent"
 )
 
 
 class WrappedAgent:
     def invoke(self, inputs):
         try:
-            # Get the response from the base agent
             response = _base_agent.invoke(inputs)
 
-            # Extract clean content from LangGraph response
             if hasattr(response, 'messages') and response.messages:
-                # Get the last AI message with actual content
                 for message in reversed(response.messages):
                     if hasattr(message, 'content') and message.content:
                         content = message.content.strip()
-                        # Look for actual analysis content
                         if content and len(content) > 50 and ('##' in content or 'Knowledge Graph' in content):
                             return {"output": content}
 
@@ -131,7 +147,6 @@ class WrappedAgent:
                         if content and len(content) > 20:
                             return {"output": content}
 
-            # Fallback: check if response has direct output
             if hasattr(response, 'content'):
                 return {"output": response.content}
             elif isinstance(response, dict) and "output" in response:
@@ -139,13 +154,11 @@ class WrappedAgent:
             elif isinstance(response, str):
                 return {"output": response}
             else:
-                # Last resort: convert to string
                 return {"output": str(response)}
 
         except Exception as e:
-            logger.error(f"Error in graph writer agent wrapper: {e}")
-            return {"output": f"Error in graph writer agent: {str(e)}"}
+            logger.error(f"Error in relationship analyst agent wrapper: {e}")
+            return {"output": f"Error in relationship analyst agent: {str(e)}"}
 
 
-# Export the fixed agent
 relationship_analyst = WrappedAgent()

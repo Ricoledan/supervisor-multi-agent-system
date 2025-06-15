@@ -54,7 +54,6 @@ def query_classification_node(state: ResearchState) -> ResearchState:
         response = model.invoke(classification_prompt).content.strip()
         logger.info(f"Classification response: {response}")
 
-        # Parse classification
         lines = response.split('\n')
         classification = "RESEARCH_QUERY"  # Default
         analysis_needed = "BOTH"  # Default
@@ -67,7 +66,6 @@ def query_classification_node(state: ResearchState) -> ResearchState:
 
         state["query_type"] = classification
 
-        # Set analysis requirements
         if classification == "RESEARCH_QUERY":
             state["needs_relationship_analysis"] = analysis_needed in ["RELATIONSHIP_ANALYSIS", "BOTH"]
             state["needs_theme_analysis"] = analysis_needed in ["THEME_ANALYSIS", "BOTH"]
@@ -133,7 +131,6 @@ def planning_node(state: ResearchState) -> ResearchState:
             )
         return state
 
-    # For RESEARCH_QUERY, create analysis plan
     try:
         from src.utils.model_init import get_openai_model
         model = get_openai_model()
@@ -207,7 +204,6 @@ def synthesis_node(state: ResearchState) -> ResearchState:
     """Synthesizes specialist outputs into final comprehensive response."""
     logger.info("Starting synthesis of specialist outputs...")
 
-    # Return early if simple query already handled
     if state.get("final_output"):
         logger.info("Using pre-generated response for simple query")
         return state
@@ -246,7 +242,6 @@ def synthesis_node(state: ResearchState) -> ResearchState:
         response = model.invoke(synthesis_prompt)
         state["final_output"] = response.content
 
-        # Apply enhanced formatting if we have both outputs
         if (state.get("relationship_output") and
                 state.get("theme_output") and
                 "Error" not in state.get("relationship_output", "") and
@@ -284,32 +279,25 @@ def synthesis_node(state: ResearchState) -> ResearchState:
     return state
 
 
-# Build the workflow
 logger.info("Initializing research coordinator workflow...")
 workflow = StateGraph(ResearchState)
 
-# Add nodes
 workflow.add_node("query_classification", query_classification_node)
 workflow.add_node("planning", planning_node)
 workflow.add_node("relationship_analysis", relationship_analysis_node)
 workflow.add_node("theme_analysis", theme_analysis_node)
 workflow.add_node("synthesis", synthesis_node)
 
-# Set entry point
 workflow.set_entry_point("query_classification")
 
-# Define workflow edges
 workflow.add_edge("query_classification", "planning")
 
 
-# Conditional routing after planning
 def route_after_planning(state: ResearchState) -> str:
     """Route to appropriate analysis based on query type and requirements."""
     if state.get("final_output"):
-        # Simple queries already handled, go to synthesis (which will pass through)
         return "synthesis"
     elif state.get("needs_relationship_analysis") and state.get("needs_theme_analysis"):
-        # Need both analyses - start with relationship (theme runs in parallel via separate edge)
         return "relationship_analysis"
     elif state.get("needs_relationship_analysis"):
         return "relationship_analysis"
@@ -330,7 +318,6 @@ workflow.add_conditional_edges(
 )
 
 
-# For comprehensive analysis, run both specialists in parallel
 def route_after_relationship(state: ResearchState) -> str:
     """After relationship analysis, check if theme analysis is also needed."""
     if state.get("needs_theme_analysis"):
@@ -348,11 +335,9 @@ workflow.add_conditional_edges(
     }
 )
 
-# Theme analysis always goes to synthesis
 workflow.add_edge("theme_analysis", "synthesis")
 workflow.add_edge("synthesis", END)
 
-# Compile the workflow
 logger.info("Compiling research coordinator workflow...")
 research_coordinator_graph = workflow.compile()
 
@@ -396,10 +381,8 @@ def process_query_direct(query: str) -> dict:
     try:
         logger.info(f"Direct processing for query: {query[:50]}...")
 
-        # Run the full research coordinator workflow
         result = run_research_coordinator(query)
 
-        # Format for API response
         response = {
             "status": "success",
             "message": result.get("final_output", "No output generated"),
@@ -411,11 +394,9 @@ def process_query_direct(query: str) -> dict:
             }
         }
 
-        # Add structured data if available
         if result.get("structured_data"):
             response["structured_data"] = result["structured_data"]
 
-        # Add debug info if available
         if result.get("relationship_output") or result.get("theme_output"):
             response["debug"] = {
                 "has_relationship_output": bool(result.get("relationship_output")),
