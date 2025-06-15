@@ -1,12 +1,9 @@
-# src/utils/ingestion_pipeline.py
-
 import logging
 from pathlib import Path
 from typing import Dict, List
 import pandas as pd
 import uuid
 from tqdm import tqdm
-import json
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
