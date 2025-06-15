@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
 
     for attempt in range(1, max_retries + 1):
         try:
+            # initialize the MongoDB client for health check
             mongo_client = get_mongodb_client()
             logger.info(f"✅ document database connected at {mongo_db_config.host}:{mongo_db_config.port}")
             break
