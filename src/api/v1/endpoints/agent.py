@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from src.domain.agents.research_coordinator import run_research_coordinator
-import re
+from src.domain.agents.research_coordinator import run_research_coordinator, process_query_direct
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -10,225 +11,267 @@ class QueryRequest(BaseModel):
     query: str
 
 
-def extract_clean_content(raw_output: str) -> str:
-    """Extract clean, readable content from agent output - IMPROVED"""
-    if not raw_output:
-        return "No response available"
+def extract_final_response(state_result: dict) -> str:
+    """Extract the final response content from the modern state result."""
+    try:
+        messages = state_result.get("messages", [])
+        if not messages:
+            return "No response generated"
 
-    content = str(raw_output)
+        # Get the last message (final response)
+        final_message = messages[-1]
 
-    # Look for tool call results (the actual database responses)
-    if "tool_call_id" in content and "## 🔗" in content:
-        # Extract graph analysis
-        start = content.find("## 🔗")
-        end = content.find("', name='enhanced_graph_tool")
-        if start != -1 and end != -1:
-            extracted = content[start:end]
-            # Clean up escape characters
-            extracted = extracted.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-            return extracted.strip()
+        # Extract content
+        if hasattr(final_message, 'content'):
+            return final_message.content
+        elif isinstance(final_message, dict) and 'content' in final_message:
+            return final_message['content']
+        else:
+            return str(final_message)
 
-    if "tool_call_id" in content and "## 📊" in content:
-        # Extract topic analysis
-        start = content.find("## 📊")
-        end = content.find("', name='topic_tool")
-        if start != -1 and end != -1:
-            extracted = content[start:end]
-            # Clean up escape characters
-            extracted = extracted.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-            return extracted.strip()
-
-    # Look for AIMessage content
-    if "AIMessage(content=" in content:
-        # Find the content within AIMessage
-        pattern = r"AIMessage\(content=['\"]([^'\"]*(?:\\.[^'\"]*)*)['\"]"
-        import re
-        matches = re.findall(pattern, content, re.DOTALL)
-        if matches:
-            clean_content = matches[-1]  # Get last match
-            clean_content = clean_content.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-            if len(clean_content) > 50:
-                return clean_content.strip()
-
-    # Look for markdown headers
-    if "## " in content:
-        lines = content.split('\n')
-        meaningful_lines = []
-        in_meaningful_section = False
-
-        for line in lines:
-            if line.strip().startswith("## "):
-                in_meaningful_section = True
-                meaningful_lines.append(line.strip())
-            elif in_meaningful_section and line.strip():
-                if not any(skip in line for skip in ['tool_call_id', 'AIMessage', 'HumanMessage']):
-                    meaningful_lines.append(line.strip())
-            elif in_meaningful_section and not line.strip():
-                meaningful_lines.append("")  # Keep paragraph breaks
-
-        if meaningful_lines:
-            return '\n'.join(meaningful_lines).strip()
-
-    # Fallback: Look for any meaningful content
-    sentences = content.split('.')
-    clean_sentences = []
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if (len(sentence) > 20 and
-                not any(skip in sentence.lower() for skip in [
-                    'tool_call_id', 'aimessage', 'humanmessage', 'additional_kwargs'
-                ])):
-            clean_sentences.append(sentence)
-        if len(clean_sentences) >= 2:
-            break
-
-    if clean_sentences:
-        return '. '.join(clean_sentences) + '.'
-
-    return "Unable to extract meaningful content"
+    except Exception as e:
+        logger.error(f"Error extracting response: {e}")
+        return f"Error extracting response: {str(e)}"
 
 
-def clean_duplicate_content(text: str) -> str:
-    """Remove duplicate sections from text"""
-    lines = text.split('\n')
-    seen_lines = set()
-    clean_lines = []
+def analyze_system_health(state_result: dict) -> dict:
+    """Analyze system health based on the conversation state."""
+    try:
+        messages = state_result.get("messages", [])
 
-    for line in lines:
-        line = line.strip()
-        # Skip empty lines and duplicates
-        if line and line not in seen_lines:
-            seen_lines.add(line)
-            clean_lines.append(line)
+        # Check which specialists were used
+        relationship_used = any(
+            hasattr(msg, 'name') and msg.name == "relationship_analyst"
+            for msg in messages
+        )
+        theme_used = any(
+            hasattr(msg, 'name') and msg.name == "theme_analyst"
+            for msg in messages
+        )
 
-    return '\n'.join(clean_lines)
+        # Check for database content indicators
+        def has_database_content(messages, agent_name):
+            agent_messages = [
+                msg for msg in messages
+                if hasattr(msg, 'name') and msg.name == agent_name
+            ]
+            if not agent_messages:
+                return False
+
+            content = agent_messages[-1].content.lower()
+            # Look for positive database indicators
+            positive_indicators = [
+                'database returned', 'found', 'retrieved', 'analyzed',
+                'concepts found', 'papers found', 'relationships found'
+            ]
+            # Look for negative database indicators
+            negative_indicators = [
+                'no data found', 'database may be empty', 'no relationship data',
+                'no thematic data', 'database status: no'
+            ]
+
+            has_positive = any(indicator in content for indicator in positive_indicators)
+            has_negative = any(indicator in content for indicator in negative_indicators)
+
+            return has_positive and not has_negative
+
+        relationship_has_data = has_database_content(messages, "relationship_analyst")
+        theme_has_data = has_database_content(messages, "theme_analyst")
+
+        # Determine overall database usage
+        if relationship_has_data and theme_has_data:
+            db_usage = "✅ High"
+            response_quality = "Database-driven"
+        elif relationship_has_data or theme_has_data:
+            db_usage = "🟡 Partial"
+            response_quality = "Mixed (database + general)"
+        elif relationship_used or theme_used:
+            db_usage = "❌ Low"
+            response_quality = "Limited database content"
+        else:
+            db_usage = "⚪ None"
+            response_quality = "General knowledge"
+
+        return {
+            "relationship_analyst": "✅ Active" if relationship_used else "⚪ Not Used",
+            "theme_analyst": "✅ Active" if theme_used else "⚪ Not Used",
+            "database_usage": db_usage,
+            "response_quality": response_quality,
+            "coordination_status": "✅ Modern LangGraph Pattern",
+            "message_count": len(messages)
+        }
+
+    except Exception as e:
+        logger.error(f"Error analyzing system health: {e}")
+        return {
+            "relationship_analyst": "❓ Unknown",
+            "theme_analyst": "❓ Unknown",
+            "database_usage": "❓ Unknown",
+            "response_quality": "Error in analysis",
+            "coordination_status": "❌ Analysis Failed",
+            "error": str(e)
+        }
 
 
 @router.post("/agent")
 def process_query(request: QueryRequest):
     """
-    Process query and return clean, readable output
+    Process research query using modern LangGraph multi-agent system.
+
+    This endpoint uses the updated research coordinator with Command-based routing
+    and proper message state management.
     """
     try:
-        # Run the supervisor workflow - FIXED: Use correct function name
-        response = run_research_coordinator(request.query)
+        logger.info(f"Processing query with modern coordinator: {request.query[:50]}...")
 
-        # Extract outputs - FIXED: Use correct field names from coordinator
-        relationship_output = response.get("relationship_output", "")
-        theme_output = response.get("theme_output", "")
-        final_output = response.get("final_output", "")
+        # Use the direct processing function which handles the full workflow
+        result = process_query_direct(request.query)
 
-        # Clean each output
-        clean_relationship = extract_clean_content(relationship_output)
-        clean_theme = extract_clean_content(theme_output)
-        clean_final = extract_clean_content(final_output)
-
-        # Check for database usage
-        def has_real_data(content):
-            indicators = [
-                'database', 'retrieved', 'found', 'neo4j', 'mongodb',
-                'concepts found', 'papers found', 'topics found'
-            ]
-            return any(indicator.lower() in content.lower() for indicator in indicators)
-
-        relationship_has_data = has_real_data(clean_relationship)
-        theme_has_data = has_real_data(clean_theme)
-
-        # Create clean, formatted response
-        if relationship_has_data and theme_has_data:
-            # Both agents working with data
-            formatted_message = f"""**🎯 Research Analysis Results**
-
-*Query:* {request.query}
-
-**🔗 Relationship Analysis:**
-{clean_relationship}
-
-**📊 Theme Analysis:**
-{clean_theme}
-
-**💡 Synthesis:**
-{clean_final}
-
-*System Status: ✅ All agents active with database content*"""
-
-        elif relationship_has_data:
-            # Only relationship agent working
-            formatted_message = f"""**🎯 Research Analysis Results**
-
-*Query:* {request.query}
-
-**🔗 Relationship Analysis:**
-{clean_relationship}
-
-**⚠️ Theme Analysis:** Limited data available
-
-**💡 Summary:**
-{clean_final}
-
-*System Status: 🟡 Relationship data available, themes need attention*"""
-
-        elif theme_has_data:
-            # Only theme agent working
-            formatted_message = f"""**🎯 Research Analysis Results**
-
-*Query:* {request.query}
-
-**📊 Theme Analysis:**
-{clean_theme}
-
-**⚠️ Relationship Analysis:** Limited data available
-
-**💡 Summary:**
-{clean_final}
-
-*System Status: 🟡 Theme data available, relationships need attention*"""
-
+        if result["status"] == "success":
+            logger.info("Query processed successfully with modern coordinator")
+            return result
         else:
-            # Generic response mode
-            formatted_message = f"""**🎯 Research Response**
+            logger.error(f"Query processing failed: {result.get('message', 'Unknown error')}")
+            raise HTTPException(status_code=500, detail=result.get("message", "Processing failed"))
 
-*Query:* {request.query}
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in agent endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-**Response:**
-{clean_final}
 
-*System Status: ⚠️ Using general knowledge (check database ingestion)*"""
+@router.post("/agent/detailed")
+def process_query_detailed(request: QueryRequest):
+    """
+    Process query with detailed state information and message history.
 
-        # Remove any duplicate content
-        formatted_message = clean_duplicate_content(formatted_message)
+    This endpoint returns the full conversation state for debugging and analysis.
+    """
+    try:
+        logger.info(f"Processing detailed query: {request.query[:50]}...")
 
-        return {
+        # Run the full coordinator workflow
+        state_result = run_research_coordinator(request.query)
+
+        # Extract response content
+        final_response = extract_final_response(state_result)
+
+        # Analyze system performance
+        system_health = analyze_system_health(state_result)
+
+        # Build detailed response
+        detailed_response = {
             "status": "success",
-            "message": formatted_message,
+            "message": final_response,
             "query": request.query,
-            "system_health": {
-                "relationship_analyst": "✅ Active" if clean_relationship != "No response available" else "❌ Inactive",
-                "theme_analyst": "✅ Active" if clean_theme != "No response available" else "❌ Inactive",
-                "database_usage": "✅ High" if (relationship_has_data and theme_has_data) else "🟡 Partial" if (
-                        relationship_has_data or theme_has_data) else "❌ Low",
-                "response_quality": "Database-driven" if (relationship_has_data or theme_has_data) else "General knowledge"
+            "query_type": state_result.get("query_type", "unknown"),
+            "analysis_plan": state_result.get("analysis_plan", ""),
+            "system_health": system_health,
+            "conversation_flow": {
+                "total_messages": len(state_result.get("messages", [])),
+                "message_agents": [
+                    getattr(msg, 'name', 'system') for msg in state_result.get("messages", [])
+                    if hasattr(msg, 'name')
+                ],
+                "coordination_pattern": "Modern Command-based routing"
+            },
+            "debug_info": {
+                "state_keys": list(state_result.keys()),
+                "needs_relationship": state_result.get("needs_relationship", False),
+                "needs_theme": state_result.get("needs_theme", False),
+                "transfer_context": state_result.get("transfer_context", "")
             }
         }
 
+        logger.info("Detailed query processing completed successfully")
+        return detailed_response
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in detailed processing: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Detailed processing failed: {str(e)}")
 
 
 @router.post("/agent/raw")
 def process_query_raw(request: QueryRequest):
     """
-    Raw output endpoint for debugging
+    Raw output endpoint for debugging - returns the complete state object.
     """
     try:
-        response = run_research_coordinator(request.query)
-        return {
+        logger.info(f"Processing raw query: {request.query[:50]}...")
+
+        # Get the complete state result
+        state_result = run_research_coordinator(request.query)
+
+        # Convert messages to serializable format
+        serializable_messages = []
+        for msg in state_result.get("messages", []):
+            msg_dict = {
+                "content": getattr(msg, 'content', str(msg)),
+                "type": type(msg).__name__,
+            }
+            if hasattr(msg, 'name'):
+                msg_dict["name"] = msg.name
+            serializable_messages.append(msg_dict)
+
+        raw_response = {
             "status": "success",
-            "message": str(response.get("final_output", "")),
-            "debug": {
-                "relationship_output": str(response.get("relationship_output", "")),
-                "theme_output": str(response.get("theme_output", ""))
+            "query": request.query,
+            "full_state": {
+                "query_type": state_result.get("query_type", "unknown"),
+                "analysis_plan": state_result.get("analysis_plan", ""),
+                "needs_relationship": state_result.get("needs_relationship", False),
+                "needs_theme": state_result.get("needs_theme", False),
+                "transfer_context": state_result.get("transfer_context", ""),
+                "messages": serializable_messages
+            },
+            "coordinator_info": {
+                "pattern": "Modern LangGraph with Command routing",
+                "state_schema": "ResearchState(MessagesState)",
+                "agents_available": ["relationship_analyst", "theme_analyst"],
+                "routing_method": "Command-based"
             }
         }
+
+        logger.info("Raw query processing completed")
+        return raw_response
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in raw processing: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Raw processing failed: {str(e)}")
+
+
+@router.get("/agent/health")
+def check_agent_health():
+    """
+    Check the health of the modern multi-agent system.
+    """
+    try:
+        # Test a simple query to verify the system works
+        test_result = process_query_direct("Hello")
+
+        health_status = {
+            "status": "healthy",
+            "coordinator_pattern": "Modern LangGraph with Commands",
+            "test_query_success": test_result["status"] == "success",
+            "available_specialists": ["relationship_analyst", "theme_analyst"],
+            "routing_method": "Command-based with MessagesState",
+            "features": {
+                "query_classification": "✅ Enabled",
+                "dynamic_routing": "✅ Enabled",
+                "specialist_tools": "✅ Enabled",
+                "database_integration": "✅ Enabled",
+                "error_handling": "✅ Enabled"
+            }
+        }
+
+        return health_status
+
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "coordinator_pattern": "Modern LangGraph (with errors)"
+        }

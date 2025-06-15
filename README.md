@@ -398,7 +398,7 @@ python -m uvicorn src.main:app --reload
 python cli.py logs --follow
 ```
 
-## References & Citations
+## References
 
 - [LangChain Multi-Agent Systems](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
 - [Neo4j Graph Database](https://neo4j.com/docs/)

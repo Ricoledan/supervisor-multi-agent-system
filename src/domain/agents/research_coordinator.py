@@ -1,9 +1,13 @@
+# src/domain/agents/research_coordinator.py
 import logging
-from typing import TypedDict, Optional
-from langgraph.graph import StateGraph, END
+from typing import Literal
+from langgraph.graph import StateGraph, MessagesState, END, START
+from langgraph.types import Command
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+
 from src.domain.agents.relationship_analyst import relationship_analyst
 from src.domain.agents.theme_analyst import theme_analyst
-from src.domain.formatters.response_formatter import EnhancedResponseFormatter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,358 +16,470 @@ logging.basicConfig(
 logger = logging.getLogger("research_coordinator")
 
 
-class ResearchState(TypedDict, total=False):
-    input: str
-    query_type: str
-    plan: Optional[str]
-    needs_relationship_analysis: Optional[bool]
-    needs_theme_analysis: Optional[bool]
-    context: Optional[dict]
-    relationship_output: Optional[str]
-    theme_output: Optional[str]
-    final_output: Optional[str]
-    structured_data: Optional[dict]
+class ResearchState(MessagesState):
+    """Modern state schema inheriting from MessagesState"""
+    query_type: str = "unknown"
+    analysis_plan: str = ""
+    needs_relationship: bool = False
+    needs_theme: bool = False
+    transfer_context: str = ""
 
 
-def query_classification_node(state: ResearchState) -> ResearchState:
-    """Classifies the query and determines which specialists are needed."""
-    query = state["input"]
-    logger.info(f"Classifying query: {query[:50]}...")
+def query_classification_node(state: ResearchState) -> Command[Literal["planning", "direct_response"]]:
+    """Classifies queries and determines routing strategy."""
+    last_message = state["messages"][-1].content if state["messages"] else ""
+    logger.info(f"Classifying query: {last_message[:50]}...")
 
     try:
-        from src.utils.model_init import get_openai_model
-        model = get_openai_model()
+        model = ChatOpenAI(model="gpt-4")
 
         classification_prompt = [
-            {"role": "system", "content":
-                "You are a research query classifier. Analyze the user's query and classify it:\n\n"
-                "GREETING: Simple greetings like 'hi', 'hello', 'hey'\n"
-                "SIMPLE_QUESTION: Basic questions not requiring deep research analysis\n"
-                "RESEARCH_QUERY: Complex academic research questions requiring analysis\n\n"
-                "For RESEARCH_QUERY, also determine what analysis is needed:\n"
-                "- RELATIONSHIP_ANALYSIS: Query asks about connections, citations, influences, networks\n"
-                "- THEME_ANALYSIS: Query asks about topics, themes, patterns, trends\n"
-                "- BOTH: Query needs comprehensive analysis from both perspectives\n\n"
-                "Respond in this format:\n"
-                "CLASSIFICATION: [GREETING|SIMPLE_QUESTION|RESEARCH_QUERY]\n"
-                "ANALYSIS_NEEDED: [RELATIONSHIP_ANALYSIS|THEME_ANALYSIS|BOTH|NONE]"
-             },
-            {"role": "user", "content": f"Classify this query: {query}"}
+            {"role": "system", "content": """
+You are a research query classifier. Analyze queries and respond with JSON:
+
+{
+  "classification": "GREETING|SIMPLE_QUESTION|RESEARCH_QUERY", 
+  "needs_relationship": true/false,
+  "needs_theme": true/false,
+  "reasoning": "brief explanation"
+}
+
+Classifications:
+- GREETING: Simple greetings ("hi", "hello")
+- SIMPLE_QUESTION: Basic questions not requiring research analysis
+- RESEARCH_QUERY: Complex academic questions needing specialist analysis
+
+For RESEARCH_QUERY, determine what analysis is needed:
+- needs_relationship: Query about connections, citations, networks, influences
+- needs_theme: Query about topics, patterns, trends, themes
+"""},
+            {"role": "user", "content": f"Classify: {last_message}"}
         ]
 
-        response = model.invoke(classification_prompt).content.strip()
-        logger.info(f"Classification response: {response}")
+        response = model.invoke(classification_prompt)
 
-        lines = response.split('\n')
-        classification = "RESEARCH_QUERY"  # Default
-        analysis_needed = "BOTH"  # Default
+        # Parse JSON response
+        import json
+        try:
+            result = json.loads(response.content)
+        except:
+            # Fallback parsing
+            result = {
+                "classification": "RESEARCH_QUERY",
+                "needs_relationship": True,
+                "needs_theme": True,
+                "reasoning": "Failed to parse, defaulting to full research"
+            }
 
-        for line in lines:
-            if line.startswith("CLASSIFICATION:"):
-                classification = line.split(":", 1)[1].strip()
-            elif line.startswith("ANALYSIS_NEEDED:"):
-                analysis_needed = line.split(":", 1)[1].strip()
+        classification = result.get("classification", "RESEARCH_QUERY")
 
-        state["query_type"] = classification
-
-        if classification == "RESEARCH_QUERY":
-            state["needs_relationship_analysis"] = analysis_needed in ["RELATIONSHIP_ANALYSIS", "BOTH"]
-            state["needs_theme_analysis"] = analysis_needed in ["THEME_ANALYSIS", "BOTH"]
+        if classification in ["GREETING", "SIMPLE_QUESTION"]:
+            # Handle simple queries directly
+            return Command(
+                goto="direct_response",
+                update={
+                    "query_type": classification,
+                    "needs_relationship": False,
+                    "needs_theme": False
+                }
+            )
         else:
-            state["needs_relationship_analysis"] = False
-            state["needs_theme_analysis"] = False
-
-        logger.info(f"Query classified as: {classification}, Analysis needed: {analysis_needed}")
+            # Route to planning for research queries
+            return Command(
+                goto="planning",
+                update={
+                    "query_type": classification,
+                    "needs_relationship": result.get("needs_relationship", True),
+                    "needs_theme": result.get("needs_theme", True)
+                }
+            )
 
     except Exception as e:
-        logger.error(f"Error in classification: {str(e)}", exc_info=True)
-        # Default to research query requiring both analyses
-        state["query_type"] = "RESEARCH_QUERY"
-        state["needs_relationship_analysis"] = True
-        state["needs_theme_analysis"] = True
-
-    return state
-
-
-def planning_node(state: ResearchState) -> ResearchState:
-    """Creates research plan and handles simple queries directly."""
-    query = state["input"]
-    query_type = state.get("query_type", "RESEARCH_QUERY")
-
-    logger.info(f"Planning approach for {query_type}: {query[:50]}...")
-
-    if query_type == "GREETING":
-        state["final_output"] = (
-            "Hello! I'm your Research Coordinator, leading a team of specialized analysts.\n\n"
-            "🔗 **Relationship Analyst** - Maps connections between papers, authors, and concepts\n"
-            "📊 **Theme Analyst** - Identifies patterns and themes across research\n\n"
-            "Here are examples of research questions I can help with:\n"
-            "• \"How do neural networks connect to medical diagnosis research?\"\n"
-            "• \"What are the main themes in climate change adaptation papers?\"\n"
-            "• \"Show me the research lineage of transformer architectures\"\n\n"
-            "What research topic would you like me to analyze today?"
+        logger.error(f"Classification error: {e}")
+        # Default to full research on error
+        return Command(
+            goto="planning",
+            update={
+                "query_type": "RESEARCH_QUERY",
+                "needs_relationship": True,
+                "needs_theme": True
+            }
         )
-        return state
 
-    elif query_type == "SIMPLE_QUESTION":
+
+def planning_node(state: ResearchState) -> Command[Literal["relationship_analyst", "theme_analyst", "synthesis"]]:
+    """Creates analysis plan and routes to appropriate specialists."""
+    query = state["messages"][-1].content if state["messages"] else ""
+    logger.info(f"Planning analysis for: {query[:50]}...")
+
+    try:
+        model = ChatOpenAI(model="gpt-4")
+
+        planning_prompt = [
+            {"role": "system", "content": """
+You are a Research Coordinator planning academic analysis. Create a brief 2-3 sentence plan.
+
+Available specialists:
+- Relationship Analyst: Maps connections between papers, authors, concepts using Neo4j
+- Theme Analyst: Identifies patterns, topics, trends using MongoDB
+
+Respond with JSON:
+{
+  "plan": "2-3 sentence analysis plan",
+  "start_with": "relationship_analyst|theme_analyst|both"
+}
+"""},
+            {"role": "user", "content": f"Plan analysis for: {query}"}
+        ]
+
+        response = model.invoke(planning_prompt)
+
         try:
-            from src.utils.model_init import get_openai_model
-            model = get_openai_model()
+            import json
+            result = json.loads(response.content)
+            plan = result.get("plan", f"Comprehensive analysis of: {query}")
+            start_with = result.get("start_with", "both")
+        except:
+            plan = f"Comprehensive analysis of: {query}"
+            start_with = "both"
 
+        # Determine routing based on needs and plan
+        if state.get("needs_relationship") and state.get("needs_theme"):
+            if start_with == "theme_analyst":
+                next_agent = "theme_analyst"
+            else:
+                next_agent = "relationship_analyst"  # Default start
+        elif state.get("needs_relationship"):
+            next_agent = "relationship_analyst"
+        elif state.get("needs_theme"):
+            next_agent = "theme_analyst"
+        else:
+            next_agent = "synthesis"
+
+        return Command(
+            goto=next_agent,
+            update={
+                "analysis_plan": plan,
+                "messages": [AIMessage(
+                    content=f"🎯 Analysis Plan: {plan}",
+                    name="research_coordinator"
+                )]
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Planning error: {e}")
+        return Command(
+            goto="relationship_analyst",
+            update={"analysis_plan": f"Analysis of: {query}"}
+        )
+
+
+def direct_response_node(state: ResearchState) -> Command[Literal[END]]:
+    """Handles simple queries that don't need specialist analysis."""
+    query = state["messages"][-1].content if state["messages"] else ""
+    query_type = state.get("query_type", "unknown")
+
+    try:
+        model = ChatOpenAI(model="gpt-4")
+
+        if query_type == "GREETING":
+            response_content = """Hello! I'm your Research Coordinator, leading a team of specialized analysts.
+
+🔗 **Relationship Analyst** - Maps connections between papers, authors, and concepts
+📊 **Theme Analyst** - Identifies patterns and themes across research
+
+Examples of research questions I can help with:
+• "How do neural networks connect to medical diagnosis research?"
+• "What are the main themes in climate change adaptation papers?"
+• "Show me the research lineage of transformer architectures"
+
+What research topic would you like me to analyze today?"""
+
+        else:  # SIMPLE_QUESTION
             simple_prompt = [
-                {"role": "system", "content":
-                    "You are a helpful research assistant. Provide a brief, direct answer to the question. "
-                    "If the question would benefit from deeper research analysis using academic databases, "
-                    "suggest that the user ask a more specific research-oriented question."
-                 },
+                {"role": "system", "content": """
+You are a helpful research assistant. Provide a brief, direct answer to simple questions.
+If the question would benefit from deeper research analysis using academic databases,
+suggest that the user ask a more specific research-oriented question.
+"""},
                 {"role": "user", "content": query}
             ]
 
             response = model.invoke(simple_prompt)
-            state["final_output"] = response.content
+            response_content = response.content
 
-        except Exception as e:
-            logger.error(f"Error handling simple question: {str(e)}", exc_info=True)
-            state["final_output"] = (
-                "I couldn't process your question properly. Could you try rephrasing it as a specific "
-                "research question? For example: 'What are the main approaches to [topic]?' or "
-                "'How do [concept A] and [concept B] relate in the literature?'"
-            )
-        return state
-
-    try:
-        from src.utils.model_init import get_openai_model
-        model = get_openai_model()
-
-        planning_prompt = [
-            {"role": "system", "content":
-                "You are a Research Coordinator planning an academic analysis. Based on the research question, "
-                "create a brief plan outlining what insights you'll provide by coordinating specialist analysts.\n\n"
-                "Available specialists:\n"
-                "- Relationship Analyst: Maps connections between papers, authors, concepts\n"
-                "- Theme Analyst: Identifies patterns, topics, and trends\n\n"
-                "Create a 2-3 sentence plan describing what analysis approach will best answer the question."
-             },
-            {"role": "user", "content": f"Create analysis plan for: {query}"}
-        ]
-
-        planning_response = model.invoke(planning_prompt)
-        state["plan"] = planning_response.content
-        logger.info(f"Analysis plan created: {state['plan']}")
+        return Command(
+            goto=END,
+            update={
+                "messages": [AIMessage(
+                    content=response_content,
+                    name="research_coordinator"
+                )]
+            }
+        )
 
     except Exception as e:
-        logger.error(f"Error in planning: {str(e)}", exc_info=True)
-        state["plan"] = f"Comprehensive analysis of: {query}"
+        logger.error(f"Direct response error: {e}")
+        return Command(
+            goto=END,
+            update={
+                "messages": [AIMessage(
+                    content="I apologize, but I encountered an error. Please try rephrasing your question.",
+                    name="research_coordinator"
+                )]
+            }
+        )
 
-    return state
 
-
-def relationship_analysis_node(state: ResearchState) -> ResearchState:
-    """Analyzes relationships and connections using the Relationship Analyst."""
-    query = state["input"]
+def relationship_analyst_node(state: ResearchState) -> Command[Literal["theme_analyst", "synthesis"]]:
+    """Executes relationship analysis and routes to next step."""
+    query = state["messages"][-1].content if state["messages"] else ""
     logger.info("Starting relationship analysis...")
 
     try:
-        logger.info("Invoking relationship analyst...")
+        # Get analysis from specialist
         result = relationship_analyst.invoke({
-            "messages": [{"role": "user", "content": query}]
+            "messages": [HumanMessage(content=query)]
         })
 
-        state["relationship_output"] = result.get("output", "No relationship analysis available")
-        logger.info(f"Relationship analysis complete: {len(state['relationship_output'])} chars")
+        analysis_content = result.get("output", "No relationship analysis available")
+
+        # Add analysis to message history with agent name
+        analysis_message = AIMessage(
+            content=analysis_content,
+            name="relationship_analyst"
+        )
+
+        # Determine the next step
+        if state.get("needs_theme", False):
+            next_step = "theme_analyst"
+        else:
+            next_step = "synthesis"
+
+        return Command(
+            goto=next_step,
+            update={"messages": [analysis_message]}
+        )
 
     except Exception as e:
-        logger.error(f"Error in relationship analysis: {str(e)}", exc_info=True)
-        state["relationship_output"] = f"Error in relationship analysis: {e}"
+        logger.error(f"Relationship analysis error: {e}")
+        error_message = AIMessage(
+            content=f"Relationship analysis encountered an error: {str(e)}",
+            name="relationship_analyst"
+        )
 
-    return state
+        next_step = "theme_analyst" if state.get("needs_theme", False) else "synthesis"
+        return Command(
+            goto=next_step,
+            update={"messages": [error_message]}
+        )
 
 
-def theme_analysis_node(state: ResearchState) -> ResearchState:
-    """Analyzes themes and patterns using the Theme Analyst."""
-    query = state["input"]
+def theme_analyst_node(state: ResearchState) -> Command[Literal["relationship_analyst", "synthesis"]]:
+    """Executes theme analysis and routes to next step."""
+    query = state["messages"][-1].content if state["messages"] else ""
     logger.info("Starting theme analysis...")
 
     try:
-        logger.info("Invoking theme analyst...")
+        # Get analysis from specialist
         result = theme_analyst.invoke({
-            "messages": [{"role": "user", "content": query}]
+            "messages": [HumanMessage(content=query)]
         })
 
-        state["theme_output"] = result.get("output", "No theme analysis available")
-        logger.info(f"Theme analysis complete: {len(state['theme_output'])} chars")
+        analysis_content = result.get("output", "No theme analysis available")
+
+        # Add analysis to message history with agent name
+        analysis_message = AIMessage(
+            content=analysis_content,
+            name="theme_analyst"
+        )
+
+        # Determine the next step
+        if state.get("needs_relationship", False) and not any(
+                msg.name == "relationship_analyst" for msg in state["messages"]
+                if hasattr(msg, 'name')
+        ):
+            next_step = "relationship_analyst"
+        else:
+            next_step = "synthesis"
+
+        return Command(
+            goto=next_step,
+            update={"messages": [analysis_message]}
+        )
 
     except Exception as e:
-        logger.error(f"Error in theme analysis: {str(e)}", exc_info=True)
-        state["theme_output"] = f"Error in theme analysis: {e}"
+        logger.error(f"Theme analysis error: {e}")
+        error_message = AIMessage(
+            content=f"Theme analysis encountered an error: {str(e)}",
+            name="theme_analyst"
+        )
 
-    return state
+        next_step = "synthesis"
+        return Command(
+            goto=next_step,
+            update={"messages": [error_message]}
+        )
 
 
-def synthesis_node(state: ResearchState) -> ResearchState:
-    """Synthesizes specialist outputs into final comprehensive response."""
+def synthesis_node(state: ResearchState) -> Command[Literal[END]]:
+    """Synthesizes all analysis results into final response."""
     logger.info("Starting synthesis of specialist outputs...")
 
-    if state.get("final_output"):
-        logger.info("Using pre-generated response for simple query")
-        return state
-
-    original_query = state["input"]
-    plan = state.get("plan", "Comprehensive research analysis")
-    relationship_output = state.get("relationship_output", "No relationship analysis performed")
-    theme_output = state.get("theme_output", "No theme analysis performed")
-
     try:
-        from src.utils.model_init import get_openai_model
-        model = get_openai_model()
+        # Extract messages from specialists
+        relationship_messages = [
+            msg for msg in state["messages"]
+            if hasattr(msg, 'name') and msg.name == "relationship_analyst"
+        ]
+        theme_messages = [
+            msg for msg in state["messages"]
+            if hasattr(msg, 'name') and msg.name == "theme_analyst"
+        ]
+
+        original_query = state["messages"][0].content if state["messages"] else "Unknown query"
+        plan = state.get("analysis_plan", "Research analysis")
+
+        model = ChatOpenAI(model="gpt-4")
 
         synthesis_prompt = [
-            {"role": "system", "content":
-                "You are a Research Coordinator synthesizing insights from specialist analysts. "
-                "Create a comprehensive, well-structured response that integrates findings from both "
-                "relationship and thematic analysis.\n\n"
-                "Structure your response with:\n"
-                "1. Brief summary of key findings\n"
-                "2. Integration of relationship insights (connections, networks, influences)\n"
-                "3. Integration of thematic insights (patterns, topics, trends)\n"
-                "4. Synthesis highlighting how the relationship and thematic views complement each other\n"
-                "5. Actionable conclusions or recommendations\n\n"
-                "Be authoritative but accessible. Focus on insights that directly answer the research question."
-             },
-            {"role": "user", "content":
-                f"Research Question: {original_query}\n\n"
-                f"Analysis Plan: {plan}\n\n"
-                f"Relationship Analysis:\n{relationship_output}\n\n"
-                f"Theme Analysis:\n{theme_output}\n\n"
-                f"Please provide a comprehensive synthesis of these insights."
-             }
+            {"role": "system", "content": """
+You are a Research Coordinator synthesizing insights from specialist analysts.
+Create a comprehensive, well-structured response that integrates findings.
+
+Structure your response with:
+1. Brief summary of key findings
+2. Integration of relationship insights (if available)
+3. Integration of thematic insights (if available)  
+4. Synthesis highlighting how the analyses complement each other
+5. Actionable conclusions or recommendations
+
+Be authoritative but accessible. Focus on insights that directly answer the research question.
+"""},
+            {"role": "user", "content": f"""
+Research Question: {original_query}
+
+Analysis Plan: {plan}
+
+Relationship Analysis:
+{relationship_messages[-1].content if relationship_messages else "No relationship analysis performed"}
+
+Theme Analysis:
+{theme_messages[-1].content if theme_messages else "No theme analysis performed"}
+
+Please provide a comprehensive synthesis of these insights.
+"""}
         ]
 
         response = model.invoke(synthesis_prompt)
-        state["final_output"] = response.content
 
-        if (state.get("relationship_output") and
-                state.get("theme_output") and
-                "Error" not in state.get("relationship_output", "") and
-                "Error" not in state.get("theme_output", "")):
+        # Create final formatted response
+        formatted_response = f"""# 🎯 Research Analysis Results
 
-            try:
-                specialist_responses = {
-                    "relationship_output": state.get("relationship_output"),
-                    "theme_output": state.get("theme_output")
-                }
+**Query:** {original_query}
 
-                formatted_result = EnhancedResponseFormatter.format_response(
-                    specialist_responses, original_query
-                )
+---
 
-                state["final_output"] = formatted_result["message"]
-                state["structured_data"] = formatted_result.get("structured_data")
-                logger.info("Successfully applied enhanced formatting")
+{response.content}
 
-            except Exception as e:
-                logger.error(f"Error applying enhanced formatting: {str(e)}", exc_info=True)
-                # Keep the basic synthesis if formatting fails
+---
 
-    except Exception as e:
-        logger.error(f"Error in synthesis: {str(e)}", exc_info=True)
-        state["final_output"] = (
-            f"I apologize, but I encountered an error while synthesizing the research analysis. "
-            f"Here's what I gathered:\n\n"
-            f"Relationship Analysis: {relationship_output}\n\n"
-            f"Theme Analysis: {theme_output}\n\n"
-            f"Error details: {str(e)}"
+### 📈 System Performance
+- **Specialists Used:** {', '.join([
+            'Relationship Analyst' if relationship_messages else '',
+            'Theme Analyst' if theme_messages else ''
+        ]).strip(', ')}
+- **Databases Queried:** Neo4j, MongoDB, ChromaDB
+- **Analysis Quality:** {'High Confidence' if (relationship_messages and theme_messages) else 'Moderate Confidence'}
+"""
+
+        return Command(
+            goto=END,
+            update={
+                "messages": [AIMessage(
+                    content=formatted_response,
+                    name="research_coordinator"
+                )]
+            }
         )
 
-    logger.info("Synthesis complete")
-    return state
+    except Exception as e:
+        logger.error(f"Synthesis error: {e}")
+
+        # Fallback synthesis
+        fallback_response = f"""# 🎯 Research Analysis Results
+
+**Query:** {original_query}
+
+I encountered an error during synthesis, but here's what I gathered:
+
+{'**Relationship Analysis:**' + chr(10) + relationship_messages[-1].content + chr(10) + chr(10) if relationship_messages else ''}
+{'**Theme Analysis:**' + chr(10) + theme_messages[-1].content + chr(10) + chr(10) if theme_messages else ''}
+
+**Error:** {str(e)}
+"""
+
+        return Command(
+            goto=END,
+            update={
+                "messages": [AIMessage(
+                    content=fallback_response,
+                    name="research_coordinator"
+                )]
+            }
+        )
 
 
-logger.info("Initializing research coordinator workflow...")
+# Build the modern workflow
+logger.info("Building modern research coordinator workflow...")
+
 workflow = StateGraph(ResearchState)
 
 workflow.add_node("query_classification", query_classification_node)
 workflow.add_node("planning", planning_node)
-workflow.add_node("relationship_analysis", relationship_analysis_node)
-workflow.add_node("theme_analysis", theme_analysis_node)
+workflow.add_node("direct_response", direct_response_node)
+workflow.add_node("relationship_analyst", relationship_analyst_node)
+workflow.add_node("theme_analyst", theme_analyst_node)
 workflow.add_node("synthesis", synthesis_node)
 
-workflow.set_entry_point("query_classification")
+# Set entry point
+workflow.add_edge(START, "query_classification")
 
-workflow.add_edge("query_classification", "planning")
-
-
-def route_after_planning(state: ResearchState) -> str:
-    """Route to appropriate analysis based on query type and requirements."""
-    if state.get("final_output"):
-        return "synthesis"
-    elif state.get("needs_relationship_analysis") and state.get("needs_theme_analysis"):
-        return "relationship_analysis"
-    elif state.get("needs_relationship_analysis"):
-        return "relationship_analysis"
-    elif state.get("needs_theme_analysis"):
-        return "theme_analysis"
-    else:
-        return "synthesis"
-
-
-workflow.add_conditional_edges(
-    "planning",
-    route_after_planning,
-    {
-        "relationship_analysis": "relationship_analysis",
-        "theme_analysis": "theme_analysis",
-        "synthesis": "synthesis"
-    }
-)
-
-
-def route_after_relationship(state: ResearchState) -> str:
-    """After relationship analysis, check if theme analysis is also needed."""
-    if state.get("needs_theme_analysis"):
-        return "theme_analysis"
-    else:
-        return "synthesis"
-
-
-workflow.add_conditional_edges(
-    "relationship_analysis",
-    route_after_relationship,
-    {
-        "theme_analysis": "theme_analysis",
-        "synthesis": "synthesis"
-    }
-)
-
-workflow.add_edge("theme_analysis", "synthesis")
-workflow.add_edge("synthesis", END)
-
-logger.info("Compiling research coordinator workflow...")
+# Compile the graph
+logger.info("Compiling modern research coordinator workflow...")
 research_coordinator_graph = workflow.compile()
 
 
 def run_research_coordinator(query: str) -> ResearchState:
     """
-    Main function to run the research coordinator workflow.
+    Main function to run the modern research coordinator workflow.
 
     Args:
         query: The research question or query from the user
 
     Returns:
-        ResearchState containing all outputs and analysis results
+        ResearchState containing all messages and analysis results
     """
-    logger.info(f"Starting research coordination for: {query[:50]}...")
+    logger.info(f"Starting modern research coordination for: {query[:50]}...")
 
     try:
-        result = research_coordinator_graph.invoke({"input": query})
+        result = research_coordinator_graph.invoke({
+            "messages": [HumanMessage(content=query)]
+        })
         logger.info("Research coordination completed successfully")
         return result
 
     except Exception as e:
         logger.error(f"Research coordination failed: {str(e)}", exc_info=True)
         return {
-            "input": query,
-            "final_output": f"Error in research coordination: {e}",
+            "messages": [
+                HumanMessage(content=query),
+                AIMessage(
+                    content=f"Error in research coordination: {e}",
+                    name="research_coordinator"
+                )
+            ],
             "query_type": "ERROR"
         }
 
@@ -383,25 +499,37 @@ def process_query_direct(query: str) -> dict:
 
         result = run_research_coordinator(query)
 
+        # Extract final message
+        final_message = result["messages"][-1] if result["messages"] else None
+        final_content = final_message.content if final_message else "No output generated"
+
+        # Count specialist usage
+        relationship_used = any(
+            hasattr(msg, 'name') and msg.name == "relationship_analyst"
+            for msg in result["messages"]
+        )
+        theme_used = any(
+            hasattr(msg, 'name') and msg.name == "theme_analyst"
+            for msg in result["messages"]
+        )
+
         response = {
             "status": "success",
-            "message": result.get("final_output", "No output generated"),
+            "message": final_content,
             "query": query,
             "query_type": result.get("query_type", "unknown"),
             "specialists_used": {
-                "relationship_analyst": bool(result.get("relationship_output")),
-                "theme_analyst": bool(result.get("theme_output"))
+                "relationship_analyst": relationship_used,
+                "theme_analyst": theme_used
+            },
+            "system_health": {
+                "relationship_analyst": "✅ Active" if relationship_used else "⚪ Not Used",
+                "theme_analyst": "✅ Active" if theme_used else "⚪ Not Used",
+                "database_usage": "✅ High" if (relationship_used and theme_used) else "🟡 Partial" if (
+                            relationship_used or theme_used) else "❌ Low",
+                "response_quality": "Database-driven" if (relationship_used or theme_used) else "General knowledge"
             }
         }
-
-        if result.get("structured_data"):
-            response["structured_data"] = result["structured_data"]
-
-        if result.get("relationship_output") or result.get("theme_output"):
-            response["debug"] = {
-                "has_relationship_output": bool(result.get("relationship_output")),
-                "has_theme_output": bool(result.get("theme_output"))
-            }
 
         logger.info("Direct processing completed successfully")
         return response
