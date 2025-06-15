@@ -86,14 +86,13 @@ supervisor-multi-agent-system/
 - **Python**: 3.11+
 - **Docker**: Latest version with Docker Compose
 - **OpenAI API Key**: Required for LLM operations
-- **Memory**: Minimum 8GB RAM recommended for all services
 
 ## Quick Start
 
 ### 1. Clone and Setup
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Ricoledan/supervisor-multi-agent-system
 cd supervisor-multi-agent-system
 cp .env.defaults .env
 # Edit .env and add your OPENAI_API_KEY

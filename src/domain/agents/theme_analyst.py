@@ -2,6 +2,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
+
 from langgraph.prebuilt import create_react_agent, InjectedState
 from langgraph.graph import MessagesState
 
@@ -12,8 +13,31 @@ logger = logging.getLogger(__name__)
 
 model = ChatOpenAI(model="gpt-4")
 
+SYSTEM_PROMPT = """You are a Theme Analyst specializing in academic research topics and patterns.
 
-# Modern tool with state injection
+Your expertise lies in analyzing document collections and identifying thematic structures across research literature using MongoDB database.
+
+**Core Responsibilities:**
+- Query MongoDB document database to analyze research paper content and metadata
+- Identify latent themes, topics, and research patterns across document collections
+- Extract key terminology and concepts that characterize research domains
+- Analyze temporal trends and emerging research areas
+- Classify research approaches, methodologies, and application domains
+
+**Analysis Focus:**
+- Thematic categorization and topic clustering
+- Research trend identification and evolution
+- Methodological approach analysis
+- Domain-specific terminology and concepts
+- Cross-disciplinary theme mapping
+
+**Tool Usage:**
+Always use the analyze_research_themes tool to query the MongoDB database. This provides actual data-driven insights from processed research papers rather than general knowledge.
+
+**Response Format:**
+Provide structured analysis with clear sections for topic categories, related papers, and thematic insights. Include quantitative data when available (paper counts, topic frequencies) and clearly distinguish between different thematic categories. Always indicate when analysis is based on actual database content."""
+
+
 @tool
 def analyze_research_themes(
         query: str,
@@ -38,7 +62,6 @@ def analyze_research_themes(
     try:
         logger.info(f"Analyzing themes for query: {query[:50]}...")
 
-        # Query the document database
         results = query_mongodb(query)
 
         topics = results.get("topics", {})
@@ -46,7 +69,6 @@ def analyze_research_themes(
 
         logger.info(f"MongoDB returned: {len(topics)} topic categories, {len(papers)} papers")
 
-        # Check if we have actual data
         if not topics and not papers:
             return """## 📊 Topic Analysis
 
@@ -64,10 +86,8 @@ python cli.py start  # This will run ingestion and topic modeling
 
 For now, I can provide general insights about research themes, but specific database-driven analysis requires populated data."""
 
-        # Build comprehensive thematic analysis
         analysis = "## 📊 Topic Analysis (MongoDB Database Results)\n\n"
 
-        # Topic categories analysis
         if topics:
             analysis += f"### 🏷️ Research Topic Categories ({len(topics)})\n\n"
 
@@ -75,7 +95,6 @@ For now, I can provide general insights about research themes, but specific data
             for category, terms in topics.items():
                 analysis += f"**{category}:**\n"
 
-                # Handle different term formats (dict vs string)
                 term_list = []
                 for term in terms[:6]:  # Top 6 terms per category
                     if isinstance(term, dict):
@@ -94,11 +113,9 @@ For now, I can provide general insights about research themes, but specific data
 
                 analysis += "\n"
 
-        # Research papers analysis
         if papers:
             analysis += f"### 📄 Thematically Related Papers ({len(papers)})\n\n"
 
-            # Analyze paper metadata for additional insights
             years = [p.get('year') for p in papers if p.get('year') and p.get('year') != 'Unknown']
             all_keywords = []
             author_count = 0
@@ -133,7 +150,6 @@ For now, I can provide general insights about research themes, but specific data
             if len(papers) > 5:
                 analysis += f"*...and {len(papers) - 5} additional papers*\n\n"
 
-        # Thematic insights and patterns
         analysis += "### 📈 Thematic Insights\n\n"
 
         if topics:
@@ -148,7 +164,6 @@ For now, I can provide general insights about research themes, but specific data
                 analysis += f"- **Dominant Category**: '{largest_category[0]}' with {largest_category[1]} key terms\n"
 
         if papers:
-            # Paper analysis
             if years:
                 year_range = f"{min(years)}-{max(years)}" if len(set(years)) > 1 else str(years[0])
                 analysis += f"- **Temporal Coverage**: Papers spanning {year_range}\n"
@@ -164,7 +179,6 @@ For now, I can provide general insights about research themes, but specific data
                     common_keywords = ", ".join([f"'{kw}' ({count})" for kw, count in most_common])
                     analysis += f"- **Recurring Keywords**: {common_keywords}\n"
 
-        # Research domain insights
         if topics and papers:
             analysis += "\n### 🔍 Domain Insights\n\n"
 
@@ -176,7 +190,6 @@ For now, I can provide general insights about research themes, but specific data
                     analysis += f" and {len(categories) - 3} more"
                 analysis += "\n"
 
-            # Research evolution (if temporal data available)
             if years and len(set(years)) > 1:
                 recent_papers = sum(1 for y in years if y >= max(years) - 2)
                 analysis += f"- **Research Activity**: {recent_papers} papers from recent years indicate active research area\n"
@@ -200,31 +213,22 @@ For now, I can provide general insights about research themes, but specific data
 **Status**: Theme analysis service encountered technical difficulties."""
 
 
-# Create the modern agent using create_react_agent
-theme_analyst = create_react_agent(
-    model=model,
-    tools=[analyze_research_themes],
-    system_prompt="""You are a Theme Analyst specializing in academic research topics and patterns.
+try:
+    theme_analyst = create_react_agent(
+        model=model,
+        tools=[analyze_research_themes],
+        prompt=SYSTEM_PROMPT  # CORRECT: Use 'prompt' parameter for 0.4.8
+    )
+    logger.info("✅ Theme analyst created successfully with LangGraph 0.4.8 API")
+except Exception as e:
+    logger.error(f"Failed to create theme analyst: {e}")
 
-Your expertise lies in analyzing document collections and identifying thematic structures across research literature using MongoDB database.
-
-**Core Responsibilities:**
-- Query MongoDB document database to analyze research paper content and metadata
-- Identify latent themes, topics, and research patterns across document collections
-- Extract key terminology and concepts that characterize research domains
-- Analyze temporal trends and emerging research areas
-- Classify research approaches, methodologies, and application domains
-
-**Analysis Focus:**
-- Thematic categorization and topic clustering
-- Research trend identification and evolution
-- Methodological approach analysis
-- Domain-specific terminology and concepts
-- Cross-disciplinary theme mapping
-
-**Tool Usage:**
-Always use the analyze_research_themes tool to query the MongoDB database. This provides actual data-driven insights from processed research papers rather than general knowledge.
-
-**Response Format:**
-Provide structured analysis with clear sections for topic categories, related papers, and thematic insights. Include quantitative data when available (paper counts, topic frequencies) and clearly distinguish between different thematic categories. Always indicate when analysis is based on actual database content."""
-)
+    try:
+        theme_analyst = create_react_agent(
+            model=model,
+            tools=[analyze_research_themes]
+        )
+        logger.info("✅ Theme analyst created with basic configuration")
+    except Exception as e2:
+        logger.error(f"Failed to create basic theme analyst: {e2}")
+        theme_analyst = None

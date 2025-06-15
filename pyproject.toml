@@ -5,8 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "multi-agent-research"
 version = "0.1.0"
-description = "Multi-Agent Research System with Professional CLI"
-authors = [{name = "Your Name", email = "your.email@example.com"}]
+description = "Multi-Agent Research System"
+authors = [{name = "Ricardo Ledan", email = "ricardoledan@proton.me"}]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.11"

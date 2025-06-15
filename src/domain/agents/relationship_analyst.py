@@ -2,6 +2,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
+
 from langgraph.prebuilt import create_react_agent, InjectedState
 from langgraph.graph import MessagesState
 
@@ -10,10 +11,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Initialize model
 model = ChatOpenAI(model="gpt-4")
 
+# MODERN: System prompt for the agent
+SYSTEM_PROMPT = """You are a Relationship Analyst specializing in academic research connections and networks.
 
-# Modern tool with state injection
+Your expertise lies in analyzing knowledge graphs and mapping relationships between research entities using Neo4j database.
+
+**Core Responsibilities:**
+- Query Neo4j graph database to find connections between papers, authors, and concepts
+- Identify research lineages, citation networks, and conceptual relationships  
+- Analyze how ideas flow between researchers, institutions, and research domains
+- Map collaborative networks and cross-disciplinary connections
+- Provide insights into research influence patterns and knowledge evolution
+
+**Analysis Focus:**
+- Direct relationships between research entities
+- Citation networks and research lineages
+- Author collaboration patterns
+- Cross-disciplinary connections
+- Influential concepts and papers
+
+**Tool Usage:**
+Always use the analyze_research_relationships tool to query the Neo4j database. This provides actual data-driven insights rather than general knowledge.
+
+**Response Format:**
+Provide structured analysis with clear sections for concepts, relationships, and papers found in the database. Always indicate when analysis is based on actual database content vs. general knowledge."""
+
+
 @tool
 def analyze_research_relationships(
         query: str,
@@ -131,7 +157,7 @@ For now, I can provide general insights about research relationships, but specif
                 if authors and authors != ['Unknown Author']:
                     author_str = ", ".join(authors[:3])
                     if len(authors) > 3:
-                        author_str += f" +{len(authors) - 3} more"
+                        author_str += f" et al."
                     analysis += f"*Authors: {author_str}*\n"
 
                 if concepts_list:
@@ -188,31 +214,24 @@ For now, I can provide general insights about research relationships, but specif
 **Status**: Relationship analysis service encountered technical difficulties."""
 
 
-# Create the modern agent using create_react_agent
-relationship_analyst = create_react_agent(
-    model=model,
-    tools=[analyze_research_relationships],
-    system_prompt="""You are a Relationship Analyst specializing in academic research connections and networks.
+# MODERN: Create the agent using LangGraph 0.4.8 API
+try:
+    relationship_analyst = create_react_agent(
+        model=model,
+        tools=[analyze_research_relationships],
+        prompt=SYSTEM_PROMPT  # CORRECT: Use 'prompt' parameter for 0.4.8
+    )
+    logger.info("✅ Relationship analyst created successfully with LangGraph 0.4.8 API")
+except Exception as e:
+    logger.error(f"Failed to create relationship analyst: {e}")
 
-Your expertise lies in analyzing knowledge graphs and mapping relationships between research entities using Neo4j database.
-
-**Core Responsibilities:**
-- Query Neo4j graph database to find connections between papers, authors, and concepts
-- Identify research lineages, citation networks, and conceptual relationships  
-- Analyze how ideas flow between researchers, institutions, and research domains
-- Map collaborative networks and cross-disciplinary connections
-- Provide insights into research influence patterns and knowledge evolution
-
-**Analysis Focus:**
-- Direct relationships between research entities
-- Citation networks and research lineages
-- Author collaboration patterns
-- Cross-disciplinary connections
-- Influential concepts and papers
-
-**Tool Usage:**
-Always use the analyze_research_relationships tool to query the Neo4j database. This provides actual data-driven insights rather than general knowledge.
-
-**Response Format:**
-Provide structured analysis with clear sections for concepts, relationships, and papers found in the database. Always indicate when analysis is based on actual database content vs. general knowledge."""
-)
+    # Fallback to basic agent if prompt parameter fails
+    try:
+        relationship_analyst = create_react_agent(
+            model=model,
+            tools=[analyze_research_relationships]
+        )
+        logger.info("✅ Relationship analyst created with basic configuration")
+    except Exception as e2:
+        logger.error(f"Failed to create basic relationship analyst: {e2}")
+        relationship_analyst = None
