@@ -4,7 +4,7 @@
 
 This project implements a sophisticated Multi-Agent System (MAS) architecture featuring a **Research Coordinator** that orchestrates specialized AI agents to analyze academic research. The system transforms academic papers into a searchable, structured, and semantically rich knowledge base through intelligent agent coordination.
 
-## 🚀 Key Features
+##  Key Features
 
 ### Core Capabilities
 - **Intelligent Agent Orchestration**: Research Coordinator routes queries to specialized agents based on analysis needs
@@ -20,7 +20,7 @@ This project implements a sophisticated Multi-Agent System (MAS) architecture fe
 - **Entity Extraction**: Automated identification of key concepts, methodologies, and research entities
 - **Topic Modeling**: Latent theme discovery and research domain classification
 
-## 🏗️ Architecture
+## ️ Architecture
 
 ### System Workflow
 ```
@@ -72,7 +72,7 @@ supervisor-multi-agent-system/
 | **Containerization** | Docker + Docker Compose | Consistent deployment and scaling |
 | **CLI Interface** | Click | Professional command-line management |
 
-## 📋 Prerequisites
+##  Prerequisites
 
 - **Python**: 3.11+
 - **Docker**: Latest version with Docker Compose
@@ -116,7 +116,7 @@ curl -X POST "http://localhost:8000/api/v1/agent" \
   -d '{"query": "How do neural networks relate to computer vision?"}'
 ```
 
-## 🔧 CLI Commands
+##  CLI Commands
 
 The system includes a professional CLI for easy management:
 
@@ -136,7 +136,7 @@ python cli.py logs            # View system logs
 python cli.py start --databases-only  # Start only databases
 ```
 
-## 🎯 Usage Examples
+##  Usage Examples
 
 ### Research Query Examples
 
@@ -184,7 +184,7 @@ python cli.py start --databases-only  # Start only databases
 }
 ```
 
-## 📊 Data Processing Pipeline
+##  Data Processing Pipeline
 
 ### 1. PDF Ingestion
 - Extracts text content using PyMuPDF
@@ -211,7 +211,7 @@ python cli.py start --databases-only  # Start only databases
 - Enables similarity search and retrieval
 - Supports hybrid search strategies
 
-## 🔍 Agent Workflow
+##  Agent Workflow
 
 ### Research Coordinator Decision Flow
 ```
@@ -248,7 +248,7 @@ Query Classification
 - Extracts key terminology and concepts
 - Analyzes methodological approaches
 
-## 🗄️ Database Schema
+## ️ Database Schema
 
 ### Neo4j Graph Schema
 ```cypher
@@ -297,7 +297,7 @@ Query Classification
 }
 ```
 
-## 🌐 Access Points
+##  Access Points
 
 After starting the system:
 
@@ -307,7 +307,7 @@ After starting the system:
 - **MongoDB Express**: http://localhost:8081
 - **ChromaDB**: http://localhost:8001
 
-## 🔧 Configuration
+##  Configuration
 
 ### Environment Variables (.env)
 ```bash
@@ -359,7 +359,7 @@ python -m uvicorn src.main:app --reload
 python cli.py logs --follow
 ```
 
-## 📚 References & Citations
+##  References & Citations
 
 - [LangChain Multi-Agent Systems](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
 - [Neo4j Graph Database](https://neo4j.com/docs/)
