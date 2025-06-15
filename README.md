@@ -79,7 +79,7 @@ supervisor-multi-agent-system/
 - **OpenAI API Key**: Required for LLM operations
 - **Memory**: Minimum 8GB RAM recommended for all services
 
-## ⚡ Quick Start
+##  Quick Start
 
 ### 1. Clone and Setup
 ```bash
