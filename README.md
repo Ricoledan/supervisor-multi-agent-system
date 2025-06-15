@@ -2,18 +2,25 @@
 
 ## Overview
 
-This project implements a sophisticated Multi-Agent System (MAS) architecture featuring a **Research Coordinator** that orchestrates specialized AI agents to analyze academic research. The system transforms academic papers into a searchable, structured, and semantically rich knowledge base through intelligent agent coordination.
+This project implements a sophisticated Multi-Agent System (MAS) architecture featuring a **Research Coordinator** that
+orchestrates specialized AI agents to analyze academic research. The system transforms academic papers into a
+searchable, structured, and semantically rich knowledge base through intelligent agent coordination.
 
-##  Key Features
+## Key Features
 
 ### Core Capabilities
+
 - **Intelligent Agent Orchestration**: Research Coordinator routes queries to specialized agents based on analysis needs
-- **Multi-Database Architecture**: Integrates Neo4j (graph), MongoDB (documents), and ChromaDB (vectors) for comprehensive data storage
-- **Academic Paper Processing**: Automated ingestion pipeline that extracts metadata, entities, topics, and relationships from PDFs
+- **Multi-Database Architecture**: Integrates Neo4j (graph), MongoDB (documents), and ChromaDB (vectors) for
+  comprehensive data storage
+- **Academic Paper Processing**: Automated ingestion pipeline that extracts metadata, entities, topics, and
+  relationships from PDFs
 - **Semantic Search & Retrieval**: Hybrid search combining vector similarity, graph traversal, and document analysis
-- **Real-time Research Analysis**: Dynamic routing between relationship analysis and thematic analysis based on query type
+- **Real-time Research Analysis**: Dynamic routing between relationship analysis and thematic analysis based on query
+  type
 
 ### Agent Specializations
+
 - **Research Coordinator**: Central supervisor that classifies queries and delegates to appropriate specialists
 - **Relationship Analyst**: Maps connections between papers, authors, concepts, and research lineages using Neo4j
 - **Theme Analyst**: Identifies patterns, topics, and trends across research literature using MongoDB
@@ -23,11 +30,13 @@ This project implements a sophisticated Multi-Agent System (MAS) architecture fe
 ## ️ Architecture
 
 ### System Workflow
+
 ```
 PDF Ingestion ➜ Entity Extraction ➜ Topic Modeling ➜ Graph Construction ➜ Vector Embedding ➜ Agent Analysis ➜ User Interaction
 ```
 
 ### Directory Structure
+
 ```
 supervisor-multi-agent-system/
 ├── src/
@@ -61,27 +70,28 @@ supervisor-multi-agent-system/
 
 ### Technology Stack
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **API Framework** | FastAPI | High-performance web API with automatic documentation |
-| **Agent Framework** | LangChain + LangGraph | Multi-agent orchestration and workflow management |
-| **LLM Integration** | OpenAI GPT-4 | Natural language processing and analysis |
-| **Graph Database** | Neo4j | Knowledge graph for entity relationships |
-| **Document Database** | MongoDB | Structured document storage and topic modeling |
-| **Vector Database** | ChromaDB | Semantic search and similarity matching |
-| **Containerization** | Docker + Docker Compose | Consistent deployment and scaling |
-| **CLI Interface** | Click | Professional command-line management |
+| Component             | Technology              | Purpose                                               |
+|-----------------------|-------------------------|-------------------------------------------------------|
+| **API Framework**     | FastAPI                 | High-performance web API with automatic documentation |
+| **Agent Framework**   | LangChain + LangGraph   | Multi-agent orchestration and workflow management     |
+| **LLM Integration**   | OpenAI GPT-4            | Natural language processing and analysis              |
+| **Graph Database**    | Neo4j                   | Knowledge graph for entity relationships              |
+| **Document Database** | MongoDB                 | Structured document storage and topic modeling        |
+| **Vector Database**   | ChromaDB                | Semantic search and similarity matching               |
+| **Containerization**  | Docker + Docker Compose | Consistent deployment and scaling                     |
+| **CLI Interface**     | Click                   | Professional command-line management                  |
 
-##  Prerequisites
+## Prerequisites
 
 - **Python**: 3.11+
 - **Docker**: Latest version with Docker Compose
 - **OpenAI API Key**: Required for LLM operations
 - **Memory**: Minimum 8GB RAM recommended for all services
 
-##  Quick Start
+## Quick Start
 
 ### 1. Clone and Setup
+
 ```bash
 git clone <repository-url>
 cd supervisor-multi-agent-system
@@ -90,6 +100,7 @@ cp .env.defaults .env
 ```
 
 ### 2. Start the System
+
 ```bash
 # Using the CLI (recommended)
 python cli.py start
@@ -98,14 +109,8 @@ python cli.py start
 docker compose up --build
 ```
 
-### 3. Add Academic Papers
-```bash
-# Create sources directory and add PDF files
-mkdir sources
-# Copy your academic PDF files to sources/
-```
-
 ### 4. Test the System
+
 ```bash
 # Quick test
 python cli.py test --query "machine learning applications"
@@ -116,7 +121,7 @@ curl -X POST "http://localhost:8000/api/v1/agent" \
   -d '{"query": "How do neural networks relate to computer vision?"}'
 ```
 
-##  CLI Commands
+## CLI Commands
 
 The system includes a professional CLI for easy management:
 
@@ -136,11 +141,12 @@ python cli.py logs            # View system logs
 python cli.py start --databases-only  # Start only databases
 ```
 
-##  Usage Examples
+## Usage Examples
 
 ### Research Query Examples
 
 **Relationship Analysis:**
+
 ```json
 {
   "query": "How do transformer architectures connect to natural language processing?"
@@ -148,6 +154,7 @@ python cli.py start --databases-only  # Start only databases
 ```
 
 **Thematic Analysis:**
+
 ```json
 {
   "query": "What are the main themes in climate change adaptation research?"
@@ -155,6 +162,7 @@ python cli.py start --databases-only  # Start only databases
 ```
 
 **Cross-Disciplinary Analysis:**
+
 ```json
 {
   "query": "Show me connections between machine learning and medical diagnosis"
@@ -163,13 +171,14 @@ python cli.py start --databases-only  # Start only databases
 
 ### API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/status` | GET | System health check |
-| `/api/v1/agent` | POST | Main research analysis endpoint |
-| `/api/v1/agent/raw` | POST | Debug endpoint with raw outputs |
+| Endpoint            | Method | Description                     |
+|---------------------|--------|---------------------------------|
+| `/api/v1/status`    | GET    | System health check             |
+| `/api/v1/agent`     | POST   | Main research analysis endpoint |
+| `/api/v1/agent/raw` | POST   | Debug endpoint with raw outputs |
 
 ### Response Format
+
 ```json
 {
   "status": "success",
@@ -177,43 +186,49 @@ python cli.py start --databases-only  # Start only databases
   "query": "Original query",
   "system_health": {
     "relationship_analyst": "✅ Active",
-    "theme_analyst": "✅ Active", 
+    "theme_analyst": "✅ Active",
     "database_usage": "✅ High",
     "response_quality": "Database-driven"
   }
 }
 ```
 
-##  Data Processing Pipeline
+## Data Processing Pipeline
 
 ### 1. PDF Ingestion
+
 - Extracts text content using PyMuPDF
 - Generates metadata (title, authors, year, abstract)
 - Creates document chunks for vector embedding
 
 ### 2. Entity Extraction
+
 - Identifies key concepts, methodologies, datasets
 - Extracts research relationships and dependencies
 - Maps author and institutional connections
 
 ### 3. Topic Modeling
+
 - Discovers latent themes across documents
 - Clusters research by domain and approach
 - Identifies emerging research trends
 
 ### 4. Knowledge Graph Construction
+
 - Creates nodes for papers, authors, concepts
 - Establishes relationships between entities
 - Enables traversal and network analysis
 
 ### 5. Vector Embedding
+
 - Generates semantic embeddings for all text chunks
 - Enables similarity search and retrieval
 - Supports hybrid search strategies
 
-##  Agent Workflow
+## Agent Workflow
 
 ### Research Coordinator Decision Flow
+
 ```
 Query Input
     ↓
@@ -237,12 +252,14 @@ Query Classification
 ### Specialist Agent Responsibilities
 
 **Relationship Analyst:**
+
 - Queries Neo4j for entity connections
 - Maps citation networks and research lineages
 - Identifies influential papers and authors
 - Analyzes collaborative patterns
 
 **Theme Analyst:**
+
 - Queries MongoDB for topic patterns
 - Identifies research themes and trends
 - Extracts key terminology and concepts
@@ -251,6 +268,7 @@ Query Classification
 ## ️ Database Schema
 
 ### Neo4j Graph Schema
+
 ```cypher
 // Nodes
 (:Paper {id, title, year, source})
@@ -264,40 +282,58 @@ Query Classification
 ```
 
 ### MongoDB Collections
+
 ```javascript
 // papers collection
 {
-  paper_id: String,
-  metadata: {title, authors, year, abstract, keywords},
-  content: [{page, text}],
-  entities: {concepts, relationships},
-  processed_at: Date
+    paper_id: String,
+        metadata
+:
+    {
+        title, authors, year, abstract, keywords
+    }
+,
+    content: [{page, text}],
+        entities
+:
+    {
+        concepts, relationships
+    }
+,
+    processed_at: Date
 }
 
 // topics collection  
 {
-  paper_id: String,
-  category: String,
-  terms: [{term, weight}],
-  created_at: Date
+    paper_id: String,
+        category
+:
+    String,
+        terms
+:
+    [{term, weight}],
+        created_at
+:
+    Date
 }
 ```
 
 ### ChromaDB Schema
+
 ```python
 # Collection: academic_papers
 {
-  documents: [text_chunks],
-  embeddings: [vector_embeddings],
-  metadatas: [{
-    paper_id, page, source, title, 
-    authors, year, research_field
-  }],
-  ids: [unique_chunk_ids]
+    documents: [text_chunks],
+    embeddings: [vector_embeddings],
+    metadatas: [{
+        paper_id, page, source, title,
+        authors, year, research_field
+    }],
+    ids: [unique_chunk_ids]
 }
 ```
 
-##  Access Points
+## Access Points
 
 After starting the system:
 
@@ -307,9 +343,10 @@ After starting the system:
 - **MongoDB Express**: http://localhost:8081
 - **ChromaDB**: http://localhost:8001
 
-##  Configuration
+## Configuration
 
 ### Environment Variables (.env)
+
 ```bash
 # Required
 OPENAI_API_KEY=your_openai_api_key_here
@@ -333,6 +370,7 @@ CHROMA_PORT=8001
 ## 🧪 Testing & Development
 
 ### Run System Tests
+
 ```bash
 # Full system test
 python cli.py test
@@ -348,6 +386,7 @@ python src/utils/ingestion_pipeline.py --test
 ```
 
 ### Development Workflow
+
 ```bash
 # Start databases only for development
 python cli.py start --databases-only
@@ -359,7 +398,7 @@ python -m uvicorn src.main:app --reload
 python cli.py logs --follow
 ```
 
-##  References & Citations
+## References & Citations
 
 - [LangChain Multi-Agent Systems](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
 - [Neo4j Graph Database](https://neo4j.com/docs/)
